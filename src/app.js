@@ -399,11 +399,20 @@ function goTo(step){
 
 /* ================= quotation panel ================= */
 
+/* The panel fills in as the rep works. Until they have actually reached the unit
+ * step, nothing has been chosen — showing a priced quote there would put a total
+ * in front of the customer that nobody selected, and would let the rep send a PDF
+ * for a configuration they never picked. So earlier steps show what is known and
+ * leave the money blank. */
+function isPriced(){ return ui.maxStep >= 3; }
+
 function renderQuote(){
   const d = derive();
   const { calc, model, price } = d;
+  const priced = isPriced();
 
-  $("quoteRef").textContent = "Draft · " + new Date().toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"});
+  $("quoteRef").textContent = (priced ? "Draft · " : "Not yet priced · ") +
+    new Date().toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"});
 
   const useCaseLabel = {
     general:"General file sharing & backup", media:"Media / video editing",
@@ -411,15 +420,25 @@ function renderQuote(){
     archival:"Archival / cold backup", database:"Database / trading systems"
   }[answers.useCase];
 
-  $("quoteSummary").innerHTML = [
-    ["Target usable", `${answers.targetTB} TB`, true],
-    ["Use case", useCaseLabel, false],
-    ["RAID", answers.raid, true],
-    ["Configuration", `${model ? model.id : "—"} + ${price.totalDrives}× ${answers.driveCap}TB ${answers.driveBrand ?? "—"}`, true],
-    ["Usable delivered", `${calc.totalUsable} TB`, true]
-  ].map(([k,v,mono]) =>
-    `<div class="qs-row"><span class="k">${k}</span><span class="v${mono ? " mono" : ""}">${escapeHtml(v)}</span></div>`
-  ).join("");
+  // Each summary row appears once the step that decides it has been completed.
+  const done = ui.maxStep;
+  const summary = [
+    ["Target usable", `${answers.targetTB} TB`, true, done >= 1],
+    ["Use case", useCaseLabel, false, done >= 1],
+    ["RAID", answers.raid, true, done >= 2],
+    ["Drives", answers.driveBrand
+        ? `${price.totalDrives}× ${answers.driveCap}TB ${answers.driveBrand}`
+        : "—", true, done >= 2],
+    ["Usable delivered", usableLine(calc), true, done >= 2],
+    ["NAS unit", model ? `${model.id}${calc.units > 1 ? ` × ${calc.units}` : ""}` : "—", true, done >= 3]
+  ];
+
+  $("quoteSummary").innerHTML = summary
+    .filter(([,,, show]) => show)
+    .map(([k, v, mono]) =>
+      `<div class="qs-row"><span class="k">${k}</span><span class="v${mono ? " mono" : ""}">${escapeHtml(v)}</span></div>`
+    ).join("") ||
+    `<p class="panel-empty">Answer the first step and the quotation builds here.</p>`;
 
   const rows = [
     [`NAS unit${calc.units > 1 ? " × " + calc.units : ""}`, model ? model.id : "—", price.nasQuote, price.nasMin],
@@ -428,16 +447,26 @@ function renderQuote(){
   if(answers.includeInstall) rows.push(["Installation & setup", "", price.installQuote, price.installMin]);
   if(answers.includeRMA)     rows.push(["Extended RMA coverage", "", price.rmaQuote, price.rmaMin]);
 
-  $("priceTableBody").innerHTML = rows.map(([label, note, max, min]) =>
-    `<tr><td>${escapeHtml(label)}${note ? `<span class="item-note">${escapeHtml(note)}</span>` : ""}</td>` +
-    `<td class="mono">${inr(max)}</td><td class="mono">${inr(min)}</td></tr>`
-  ).join("");
+  $("priceTableBody").innerHTML = priced
+    ? rows.map(([label, note, max, min]) =>
+        `<tr><td>${escapeHtml(label)}${note ? `<span class="item-note">${escapeHtml(note)}</span>` : ""}</td>` +
+        `<td class="mono">${inr(max)}</td><td class="mono">${inr(min)}</td></tr>`
+      ).join("")
+    : `<tr class="pending"><td>NAS unit</td><td class="mono">—</td><td class="mono">—</td></tr>
+       <tr class="pending"><td>Hard drives</td><td class="mono">—</td><td class="mono">—</td></tr>`;
 
-  $("grandMax").textContent = inr(price.grandQuote);
-  $("grandMin").textContent = inr(price.grandMin);
-  $("rtAmount").textContent = inr(price.grandQuote);
+  $("grandMax").textContent = priced ? inr(price.grandQuote) : "—";
+  $("grandMin").textContent = priced ? inr(price.grandMin) : "—";
+  $("rtAmount").textContent = priced ? inr(price.grandQuote) : "—";
 
-  ui.lastQuote = {
+  const pdfBtn = $("generatePdf");
+  pdfBtn.disabled = !priced || !model;
+  $("quotePanel").classList.toggle("unpriced", !priced);
+  $("runningTotal").classList.toggle("unpriced", !priced);
+  if(!priced) statusMsg("Pick a NAS unit in step 3 to price the quote.", "");
+  else if($("pdfStatus").textContent.startsWith("Pick a NAS unit")) statusMsg("", "");
+
+  ui.lastQuote = !priced ? null : {
     targetTB: answers.targetTB, useCaseLabel,
     raid: answers.raid, raidLabel: RAID_INFO[answers.raid].label, speed: answers.speed,
     model, units: calc.units, drivesPerUnit: calc.drivesPerUnit, totalDrives: price.totalDrives,
@@ -450,6 +479,15 @@ function renderQuote(){
       rep: answers.repName.trim(), validity: answers.validity
     }
   };
+}
+
+/** RAID minimums mean the delivered capacity often overshoots the target — say so
+ *  rather than leaving the rep to explain an unexplained number to the customer. */
+function usableLine(calc){
+  const over = calc.totalUsable - answers.targetTB;
+  if(over <= 0) return `${calc.totalUsable} TB`;
+  const min = RAID_INFO[answers.raid].minDrives;
+  return `${calc.totalUsable} TB (${answers.raid} needs ${min}+ drives)`;
 }
 
 /* mobile bottom sheet */
@@ -473,7 +511,7 @@ function statusMsg(text, cls){
 function handleGeneratePdf(){
   const q = ui.lastQuote;
   if(!q || !q.model){
-    statusMsg("Pick a NAS unit in step 3 first.", "err");
+    statusMsg("Reach step 3 and pick a NAS unit first.", "err");
     return;
   }
   if(!window.jspdf){

@@ -45,21 +45,29 @@ test("step 1 offers the use cases and a storage slider", () => {
   assert.equal($("stepBody").querySelector('input[name="useCase"]:checked').value, "general");
 });
 
-test("the quotation panel is populated before anything is touched", () => {
-  assert.match(text("grandMax"), /^₹[\d,]+$/);
-  assert.notEqual(text("grandMax"), "₹0");
-  assert.equal(text("grandMax"), text("rtAmount"));
-  assert.ok($("priceTableBody").querySelectorAll("tr").length >= 2);
+test("nothing is priced before the rep has chosen a unit", () => {
+  // The panel must not show a total for a configuration nobody picked.
+  assert.equal(text("grandMax"), "—");
+  assert.equal(text("grandMin"), "—");
+  assert.equal(text("rtAmount"), "—");
+  assert.ok($("quotePanel").classList.contains("unpriced"));
+  assert.equal($("generatePdf").disabled, true);
+  assert.match(text("quoteRef"), /Not yet priced/);
 });
 
-test("choosing a use case applies its RAID default and re-prices", () => {
-  const before = text("grandMax");
+test("what the rep has answered still shows in the panel", () => {
+  assert.match(text("quoteSummary"), /Target usable/);
+  assert.match(text("quoteSummary"), /20 TB/);
+  assert.doesNotMatch(text("quoteSummary"), /NAS unit/);   // step 3 not reached
+});
+
+test("choosing a use case applies its RAID default", () => {
   const media = $("stepBody").querySelector('input[name="useCase"][value="media"]');
   media.checked = true;
   media.dispatchEvent(new win.Event("change", { bubbles:true }));
 
-  assert.match(text("quoteSummary"), /RAID5/);
-  assert.notEqual(text("grandMax"), before, "price changed with the RAID level");
+  assert.equal($("stepBody").querySelector('input[name="useCase"]:checked').value, "media");
+  assert.equal(text("grandMax"), "—", "still unpriced on step 1");
 });
 
 test("Next walks to step 2, which renders RAID and drive choices", () => {
@@ -92,6 +100,12 @@ test("step 3 lists only units matching the bay tier and RAID level", () => {
   assert.ok(cards.length > 0, "at least one candidate unit");
   assert.ok($("stepBody").querySelector(".model-card.selected"), "one is preselected");
   assert.ok($("stepBody").textContent.includes("Best price"));
+
+  // reaching step 3 is what turns the quotation into a real, sendable quote
+  assert.match(text("grandMax"), /^₹[\d,]+$/);
+  assert.equal(text("grandMax"), text("rtAmount"));
+  assert.equal($("generatePdf").disabled, false);
+  assert.match(text("quoteSummary"), /NAS unit/);
 });
 
 test("picking a different unit changes the total", () => {

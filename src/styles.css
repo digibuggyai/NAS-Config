@@ -377,6 +377,15 @@ input::placeholder{ color:var(--faint); }
 .btn-refresh:hover:not(:disabled){ border-color:var(--accent); color:var(--accent); }
 .btn-refresh:disabled{ opacity:.5; cursor:progress; }
 
+.panel-empty{
+  margin:0; font-size:12.2px; color:var(--faint); line-height:1.5;
+  padding:14px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+}
+.price-table tbody tr.pending td{ color:var(--faint); }
+.quote-panel.unpriced .totals-row .amount{ color:var(--faint); }
+.quote-panel.unpriced .totals{ border-top-color:var(--line); }
+.running-total.unpriced .rt-amount{ color:var(--faint); }
+
 .quote-summary{ display:flex; flex-direction:column; gap:9px; margin-bottom:16px; }
 .qs-row{ display:flex; justify-content:space-between; gap:10px; font-size:12.5px; }
 .qs-row .k{ color:var(--muted); flex:none; }
