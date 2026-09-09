@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NAS Configurator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">DB</div>
+      <div class="brand-text">
+        <h1>DigiBuggy</h1>
+        <p>NAS Solution Configurator</p>
+      </div>
+    </div>
+    <div class="topbar-tag">INTERNAL · SALES TOOL</div>
+  </header>
+
+  <div class="layout">
+    <main class="wizard">
+
+      <!-- progress rail -->
+      <nav id="progress" aria-label="Configuration steps"></nav>
+
+      <!-- one step at a time -->
+      <section class="stage card" aria-live="polite">
+        <div id="stepBody"></div>
+      </section>
+
+      <!-- step navigation -->
+      <div class="step-nav">
+        <button type="button" class="btn-ghost" id="backBtn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          Back
+        </button>
+        <span class="step-count mono" id="stepCount"></span>
+        <button type="button" class="btn-primary btn-next" id="nextBtn">
+          <span id="nextLabel">Next</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </button>
+      </div>
+    </main>
+
+    <!-- live quotation -->
+    <aside class="quote-panel" id="quotePanel" aria-label="Live quotation">
+      <div class="quote-card">
+        <div class="quote-head">
+          <div>
+            <h3>Live quotation</h3>
+            <p class="quote-ref" id="quoteRef"></p>
+          </div>
+          <button type="button" class="btn-icon" id="closeQuote" aria-label="Close quotation">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+
+        <div class="price-source">
+          <span class="quote-ref" id="dataSyncNote">Loading prices…</span>
+          <button type="button" class="btn-refresh" id="refreshPrices" title="Re-fetch prices from the sheet">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+            Refresh
+          </button>
+        </div>
+        <div class="banner banner-sm" id="priceWarnings" hidden></div>
+
+        <div class="quote-summary" id="quoteSummary"></div>
+
+        <table class="price-table">
+          <thead>
+            <tr><th>Item</th><th>Max</th><th>Min</th></tr>
+          </thead>
+          <tbody id="priceTableBody"></tbody>
+        </table>
+
+        <div class="totals">
+          <div class="totals-row">
+            <span class="label">Total (Max · quote price)</span>
+            <span class="amount mono" id="grandMax">₹0</span>
+          </div>
+          <div class="totals-row min">
+            <span class="label">Total (Min · with tax)</span>
+            <span class="amount mono" id="grandMin">₹0</span>
+          </div>
+        </div>
+
+        <button class="btn-primary" id="generatePdf">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download quotation PDF
+        </button>
+        <p class="pdf-status" id="pdfStatus"></p>
+
+        <p class="fineprint">Max = list quote price from the current price sheet. Min = best price incl. tax adjustment. Speed and expandability notes are general guidance — confirm the current spec sheet before finalizing an order.</p>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<!-- phone / tablet: running total pinned to the bottom -->
+<div class="running-total" id="runningTotal">
+  <div class="rt-copy">
+    <span class="rt-label">Running total</span>
+    <span class="rt-amount mono" id="rtAmount">₹0</span>
+  </div>
+  <button type="button" class="btn-quote" id="openQuote">
+    View quote
+  </button>
+</div>
+<div class="scrim" id="scrim" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js"></script>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>

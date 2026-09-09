@@ -1,0 +1,14 @@
+{
+  "name": "nas-configurator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DigiBuggy internal NAS sales configurator — guided sizing, live quotation, PDF export.",
+  "type": "module",
+  "scripts": {
+    "start": "npx --yes serve@14 . -l 5173",
+    "test": "node --test test/"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
+  }
+}
