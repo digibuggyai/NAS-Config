@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DigiBuggy — Pricing Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="admin.css">
+</head>
+<body>
+
+<!-- sign in -->
+<div class="login-screen" id="loginScreen" hidden>
+  <form class="login-card" id="loginForm">
+    <div class="brand-mark">DB</div>
+    <h1>Pricing admin</h1>
+    <p class="login-sub">DigiBuggy internal</p>
+
+    <label for="loginEmail">Email</label>
+    <input type="email" id="loginEmail" autocomplete="username" required>
+
+    <label for="loginPassword">Password</label>
+    <input type="password" id="loginPassword" autocomplete="current-password" required>
+
+    <button type="submit" class="btn-primary" id="loginBtn">Sign in</button>
+    <p class="form-error" id="loginError"></p>
+  </form>
+</div>
+
+<!-- the admin itself -->
+<div class="admin" id="adminScreen" hidden>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">DB</div>
+      <div class="brand-text">
+        <h1>Pricing admin</h1>
+        <p id="whoami"></p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <a class="btn-ghost" href="/" target="_blank" rel="noopener">Open configurator</a>
+      <button type="button" class="btn-ghost" id="logoutBtn">Sign out</button>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button type="button" class="tab on" data-tab="products">Products &amp; prices</button>
+    <button type="button" class="tab" data-tab="quotes">Quotations</button>
+    <button type="button" class="tab" data-tab="users" data-admin-only>Users</button>
+  </nav>
+
+  <!-- products -->
+  <section class="panel" data-panel="products">
+    <div class="panel-head">
+      <div class="filters">
+        <input type="search" id="productSearch" placeholder="Search model, brand, SKU…">
+        <select id="categoryFilter"><option value="">All categories</option></select>
+        <label class="inline-check"><input type="checkbox" id="showInactive"> Show inactive</label>
+      </div>
+      <button type="button" class="btn-primary" id="newProductBtn">New product</button>
+    </div>
+    <div class="table-wrap">
+      <table class="grid" id="productTable">
+        <thead>
+          <tr>
+            <th>Product</th><th>Category</th><th class="num">Spec</th>
+            <th class="num">Base (ex-GST)</th><th class="num">Quote</th><th class="num">Minimum</th>
+            <th class="num">Since</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="productRows"></tbody>
+      </table>
+    </div>
+    <p class="table-note" id="productNote"></p>
+  </section>
+
+  <!-- quotations -->
+  <section class="panel" data-panel="quotes" hidden>
+    <div class="panel-head">
+      <div class="filters"><input type="search" id="quoteSearch" placeholder="Search customer or reference…"></div>
+    </div>
+    <div class="table-wrap">
+      <table class="grid" id="quoteTable">
+        <thead>
+          <tr><th>Reference</th><th>Customer</th><th>Prepared by</th><th class="num">Total (Max)</th><th class="num">Total (Min)</th><th>Status</th><th class="num">Date</th></tr>
+        </thead>
+        <tbody id="quoteRows"></tbody>
+      </table>
+    </div>
+    <p class="table-note" id="quoteNote"></p>
+  </section>
+
+  <!-- users -->
+  <section class="panel" data-panel="users" hidden>
+    <div class="panel-head">
+      <div class="filters"></div>
+      <button type="button" class="btn-primary" id="newUserBtn">New user</button>
+    </div>
+    <div class="table-wrap">
+      <table class="grid" id="userTable">
+        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
+        <tbody id="userRows"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<!-- product editor -->
+<dialog class="sheet" id="productDialog">
+  <form method="dialog" id="productForm">
+    <header class="sheet-head">
+      <h2 id="productDialogTitle">Product</h2>
+      <button type="button" class="btn-icon" data-close aria-label="Close">&times;</button>
+    </header>
+
+    <div class="sheet-body">
+      <div class="field-grid">
+        <label>SKU / model
+          <input type="text" name="sku" required placeholder="DS425+">
+        </label>
+        <label>Category
+          <select name="category" id="productCategory"></select>
+        </label>
+        <label>Display name
+          <input type="text" name="name" required placeholder="DS425+">
+        </label>
+        <label>Brand
+          <input type="text" name="brand" placeholder="Synology">
+        </label>
+        <label class="wide">Spec line
+          <input type="text" name="spec" placeholder="4-bay desktop NAS">
+        </label>
+      </div>
+
+      <div class="field-grid" id="nasFields">
+        <label>Bays
+          <input type="number" name="bays" min="1" step="1" placeholder="4">
+        </label>
+        <label>Expandable
+          <select name="expandable"><option value="0">No</option><option value="1">Yes</option></select>
+        </label>
+        <fieldset class="wide raid-set">
+          <legend>RAID levels supported</legend>
+          <div class="raid-row">
+            <label class="inline-check"><input type="checkbox" name="raid" value="RAID0"> RAID 0</label>
+            <label class="inline-check"><input type="checkbox" name="raid" value="RAID1"> RAID 1</label>
+            <label class="inline-check"><input type="checkbox" name="raid" value="RAID5"> RAID 5</label>
+            <label class="inline-check"><input type="checkbox" name="raid" value="RAID6"> RAID 6</label>
+            <label class="inline-check"><input type="checkbox" name="raid" value="RAID10"> RAID 10</label>
+          </div>
+        </fieldset>
+      </div>
+
+      <div class="field-grid" id="driveFields">
+        <label>Capacity (TB)
+          <input type="number" name="capacityTb" min="0" step="0.5" placeholder="8">
+        </label>
+      </div>
+
+      <div class="field-grid">
+        <label>Charged
+          <select name="unit">
+            <option value="per_unit">Per NAS unit</option>
+            <option value="per_drive">Per drive</option>
+            <option value="percent_of_hardware">% of hardware subtotal</option>
+            <option value="flat">Once per quote</option>
+          </select>
+        </label>
+        <label>Active
+          <select name="active"><option value="1">Yes — quotable</option><option value="0">No — hidden</option></select>
+        </label>
+      </div>
+
+      <div class="price-block">
+        <h3>Price</h3>
+        <p class="hint" id="priceHint"></p>
+        <div class="field-grid">
+          <label>Base, ex-GST
+            <input type="number" name="priceBase" min="0" step="0.01" placeholder="54000">
+          </label>
+          <label>Quote price (asking)
+            <input type="number" name="priceQuote" min="0" step="0.01" placeholder="67000">
+          </label>
+          <label>In force from
+            <input type="date" name="priceEffectiveFrom">
+          </label>
+          <label>Note
+            <input type="text" name="priceNote" placeholder="Distributor increase">
+          </label>
+        </div>
+        <p class="computed" id="computedMin"></p>
+      </div>
+
+      <details class="history" id="historyBlock" hidden>
+        <summary>Price history</summary>
+        <div id="historyRows"></div>
+      </details>
+
+      <p class="form-error" id="productError"></p>
+    </div>
+
+    <footer class="sheet-foot">
+      <button type="button" class="btn-ghost" data-close>Cancel</button>
+      <button type="button" class="btn-danger" id="deactivateBtn" hidden>Deactivate</button>
+      <button type="button" class="btn-primary" id="saveProductBtn">Save</button>
+    </footer>
+  </form>
+</dialog>
+
+<!-- user editor -->
+<dialog class="sheet narrow" id="userDialog">
+  <form method="dialog" id="userForm">
+    <header class="sheet-head">
+      <h2 id="userDialogTitle">User</h2>
+      <button type="button" class="btn-icon" data-close aria-label="Close">&times;</button>
+    </header>
+    <div class="sheet-body">
+      <div class="field-grid">
+        <label class="wide">Name<input type="text" name="name" placeholder="Priya Sharma"></label>
+        <label class="wide">Email<input type="email" name="email" required placeholder="priya@digibuggy.com"></label>
+        <label>Role
+          <select name="role"><option value="rep">Rep — can quote</option><option value="admin">Admin — can edit prices</option></select>
+        </label>
+        <label>Active
+          <select name="active"><option value="1">Yes</option><option value="0">No</option></select>
+        </label>
+        <label class="wide">Password
+          <input type="password" name="password" autocomplete="new-password" placeholder="At least 8 characters">
+        </label>
+      </div>
+      <p class="form-error" id="userError"></p>
+    </div>
+    <footer class="sheet-foot">
+      <button type="button" class="btn-ghost" data-close>Cancel</button>
+      <button type="button" class="btn-primary" id="saveUserBtn">Save</button>
+    </footer>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" hidden></div>
+
+<script type="module" src="admin.js"></script>
+</body>
+</html>

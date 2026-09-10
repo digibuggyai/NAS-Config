@@ -1,0 +1,13 @@
+{
+  "name": "@nas/backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Pricing database, admin API and the quote store.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "seed": "node seed.js",
+    "test": "node --test test/"
+  }
+}

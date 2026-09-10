@@ -4,111 +4,93 @@ Internal sales tool for DigiBuggy (DGB India). A salesperson runs it live with a
 customer: answer a few questions about storage needs, get a recommended NAS unit
 plus drives, and download a PDF quotation.
 
-Standalone port of the original single-file Claude Artifact prototype: a single
-configuration page with a live quotation alongside it. No build step.
+A single configuration page with a live quotation alongside it, backed by a
+pricing database an admin maintains. No build step on the front end.
 
 ## Running it
 
 ```bash
-npm start          # serves the folder at http://localhost:5173
+npm install
+npm run seed          # catalogue + opening prices, safe to re-run
+npm start             # http://localhost:3000
 ```
 
-Any static server works — the app is plain HTML/CSS/ES modules. It can be dropped
-onto any static host as-is.
+| URL | What |
+|---|---|
+| `/` | the configurator a rep runs with a customer |
+| `/admin/` | pricing admin — products, prices, quotations, users |
+| `/api/pricing` | the price list the configurator reads |
 
-Opening `index.html` straight off the disk (`file://`) will not work — browsers block
-ES-module loading from `file://` — so use a server.
+To create the first admin account, give the seed one:
 
 ```bash
-npm install        # jsdom, for the render tests only
-npm test           # RAID maths, price-list handling, sheet parser, and a full
-                   # jsdom pass over the configuration page
+ADMIN_EMAIL=you@digibuggy.com ADMIN_PASSWORD='something long' npm run seed
+```
+
+```bash
+npm test              # both workspaces
 ```
 
 ## Layout
 
 ```
-index.html               markup + font/CDN links
-apps-script/Code.gs      Apps Script web app: Pricing tab -> JSON
-apps-script/README.md    how to deploy it
-docs/sheet-schema.md     recommended layout for the permanent pricing sheet
-src/config.js            the sheet endpoint URL and cache settings
-src/pricing.js           fetch / cache / validate the price list
-src/logic.js             RAID sizing, model filtering, quote maths (pure, tested)
-src/pdf.js               jsPDF quotation layout
-src/app.js               answer state, section rendering, quotation panel
-src/styles.css           design tokens + all styling
-data/pricing.json        offline copy of the price list
-test/                    unit tests
+frontend/         the configurator and the admin UI — no build step
+  index.html      the configurator page
+  src/            sizing logic, pricing client, PDF, styles
+  admin/          the pricing admin
+  data/           offline copy of the price list
+  test/           sizing maths + a jsdom pass over the page
+backend/          pricing database, admin API, quote store
+  README.md       environment, API and deployment notes
+  routes.js       the API
+  pricing.js      products + prices -> the configurator's payload
+  seed.js         the catalogue and its opening prices
+  test/           the API driven over HTTP
+docs/             pricing sheet layout notes
+apps-script/      legacy importer for the original Google Sheet
 ```
 
-## Pricing comes from the sheet
+## Prices come from the admin
 
-Prices are edited in the **Pricing** tab of the "NAS COLD MESSAGE" Google Sheet, as
-before. An Apps Script web app serves that tab as JSON and the configurator fetches
-it on every page load, so a price changed in the sheet is quoted by the next rep to
-open the tool. No redeploy, no re-transcription.
+The catalogue lives in the backend's database and is edited at `/admin`: add or
+retire products, change prices, and see the history of every change. The
+configurator fetches `/api/pricing` on load, again every 10 minutes while open,
+when a backgrounded tab is reopened, and on its Refresh button — so a price
+changed in the admin is quoted by the next rep to open the tool.
 
-**Setup is one-time and takes a few minutes** — see
-[apps-script/README.md](apps-script/README.md). Paste the deployment URL into
-`SHEET_ENDPOINT` in [src/config.js](src/config.js) and it's live.
+Two numbers are entered, one is derived:
 
-Until that URL is set, the app runs off `data/pricing.json` and says so.
-
-A permanent pricing sheet covering every component category is being built. The
-layout that keeps this working with no code change per category is written up in
-[docs/sheet-schema.md](docs/sheet-schema.md) — worth reading before that sheet is
-built, not after.
-
-Once the endpoint is set there is nothing to maintain by hand:
-
-| In the sheet | In the tool |
+| | |
 |---|---|
-| Change a price | quoted on the next load or background refresh |
-| Add a model row | appears in the model list, filtered by its bay tier and RAID |
-| Remove a model row | disappears |
-| Add a drive line column | appears in the "Drive line" choices at that capacity |
-| Add a capacity row | appears in the "Drive capacity" choices |
-| Change the installation or AMC rate | flows into the add-on lines and totals |
+| **Base** | ex-GST, the price list's `54000+` |
+| **Quote** | the asking price, GST inclusive — the "Max" column |
+| **Minimum** | **derived**: base × (1 + GST) — the "Min" column |
 
-The page fetches on load, again every 10 minutes while it's open
-(`AUTO_REFRESH_MS` in `src/config.js`), when the rep returns to a tab that has been
-in the background, and on the **Refresh** button. Background fetches keep the rep's
-current answers and selected model.
+Every row of the September 2026 price list matches that identity to the rupee, so
+the minimum is never typed by hand and can't drift. The GST rate is a setting, not
+a constant.
 
-The one case that needs a person: a model row whose **bay count** can't be
-determined. If the Pricing tab has no bays column, the script falls back to the
-`BAY_HINTS` map in `Code.gs`, and a genuinely new model won't be in it — the model
-is skipped and named in a warning in the quote panel. Adding a **Bays** column to
-the Pricing tab removes that failure mode entirely and is the recommended fix.
+Prices are append-only: a change writes a new row with its own effective date,
+author and note. That makes an old quotation explainable, and lets a rise be
+entered today to take effect on its own date.
 
-### What the rep sees
+### If the server can't be reached
 
-The quote panel always names the price list in use, with a **Refresh** button for
-pulling a mid-call sheet edit:
+`frontend/src/pricing.js` falls back in order: the API → a `localStorage` cache of
+the last good response → `frontend/data/pricing.json` → a snapshot built into the
+module. The quote panel always names which one is in use, and every payload is
+validated before it is quoted from, so a half-broken edit can't produce a ₹0
+quotation.
 
-| Line | Meaning |
+| Line in the panel | Meaning |
 |---|---|
-| `Live from sheet · 09 Sep, 14:32` | fetched from the sheet just now |
-| `Cached from sheet · 09 Sep` | sheet unreachable; quoting the last good copy |
-| `Stale cache · 02 Sep (sheet unreachable)` | as above, but over a day old — shown in amber |
-| `Offline copy · …` / `Price list · …` | quoting `data/pricing.json` |
-| `Built-in snapshot — prices may be out of date` | last resort; nothing else loaded |
+| `Live prices · 10 Sep, 14:32` | fetched just now |
+| `Cached prices · 10 Sep (server unreachable)` | quoting the last good copy |
+| `Stale cache · 02 Sep (server unreachable)` | as above, over a day old — shown in amber |
+| `Built-in snapshot — prices may be out of date` | last resort |
 
-Anything the parser had to skip (a model with no price, a header row it couldn't
-find) is reported in the panel as a warning rather than silently dropped.
-
-### Fallback chain
-
-`src/pricing.js` tries, in order: the sheet endpoint → a `localStorage` cache of the
-last good response → `data/pricing.json` → a built-in snapshot in the module itself.
-Every payload is normalised (sheet cells arrive as strings) and validated before it
-is quoted from, so a half-broken sheet edit can't produce a ₹0 quotation — the app
-falls through to the previous source instead.
-
-`data/pricing.json` and the built-in snapshot are the September 2026 transcription.
-They only matter when the sheet is unreachable; refresh them occasionally if you
-care about the offline path being accurate.
+Anything the backend couldn't use — a product with no bay count, say — is reported
+in the panel as a warning rather than silently dropped.
 
 ## The page
 
@@ -136,7 +118,8 @@ collapses to a pinned running total that opens the full quotation as a bottom sh
    RAID 5 `(n−1)×size`, RAID 6 `(n−2)×size`, RAID 10 `(n/2)×size`.
 2. **Drive count** is the smallest `n` that reaches the target within the chassis
    (RAID 10 steps in pairs). On **Auto** the chassis is the smallest tier that fits,
-   so `n` rounds up to 2/4/6/8; choosing a size explicitly caps the bays per unit.
+   so `n` rounds up to the next size stocked (2/4/5/6/8 today — the DS1525+ is a
+   5-bay); choosing a size explicitly caps the bays per unit.
 3. If the chassis can't reach the target at the chosen drive size, the quote scales
    to multiple whole units and the UI shows a warning banner. Picking a small
    chassis for a large target is a legitimate way to get there — three 2-bay boxes
@@ -152,27 +135,28 @@ Every column shows two prices: **Max** (the sheet's list "Quote Price") and
 
 ## Known gaps
 
-Carried over from the prototype — these are unresolved data questions, not bugs:
-
-- The sheet's **PreBuilds** and **Reference** tabs were never read. They may define
-  ready-made configurations that should be offered directly rather than assembled
-  from the sizing rules below.
-- No SSD pricing exists in the sheet yet — HDD only.
-- **Network speed** is captured as a customer requirement printed on the quote. It is
-  not matched against real per-model NIC specs; those weren't in the sheet.
-- **Expandability** flags are inferred from product-line knowledge (Synology "+",
-  QNAP PX/A tiers), not sheet data. Confirm before quoting.
-- The parser reads only the **Pricing** tab. If bay counts or expandability ever get
-  their own columns there, the script picks them up automatically and stops using its
-  hint maps.
-
-## Notes on the port
-
-- The prototype's `window.claude.use("db")` pricing sync is replaced by the Apps
-  Script endpoint; `window.claude.use("downloads")` is replaced by jsPDF's own
-  `doc.save()`, which triggers a normal browser download.
+- The original sheet's **PreBuilds** and **Reference** tabs were never read. They
+  may define ready-made configurations that should be offered directly rather than
+  assembled from the sizing rules above.
+- **No SSD, RAM or NIC products yet.** The database and admin handle those
+  categories; nobody has entered any. Add them at `/admin` and SSDs appear
+  alongside HDDs immediately — RAM and NICs need a decision about where they sit
+  in the sales flow before they can be quoted.
+- **Network speed** is captured as a customer requirement printed on the quote. It
+  is not matched against real per-model NIC specs.
+- **Expandability** flags came from product-line knowledge (Synology "+", QNAP
+  PX/A tiers), not from a price list. They are editable per product in the admin —
+  correct any that are wrong.
+- **The quotation PDF is not yet built to your template.** It uses a layout I
+  designed; the real format is still to come.
 - jsPDF's built-in Helvetica has no rupee glyph, so the PDF prints `Rs.` where the
-  on-screen panel prints `₹`. Embedding a Unicode font would fix it if the symbol
+  on-screen panel prints `₹`. Embedding a Unicode font fixes it if the symbol
   matters on the customer-facing document.
-- jsPDF and jspdf-autotable load from cdnjs. For an air-gapped or offline-tolerant
-  deploy, vendor those two files locally.
+- jsPDF and jspdf-autotable load from cdnjs. For an air-gapped deploy, vendor
+  those two files locally.
+
+## Deploying
+
+See [backend/README.md](backend/README.md). The short version: set `DATABASE_URL`
+to a Postgres URL on any managed platform — their disks are ephemeral and a SQLite
+file there is wiped on every redeploy. The schema and every query run on both.

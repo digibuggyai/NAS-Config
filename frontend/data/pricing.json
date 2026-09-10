@@ -13,7 +13,7 @@
     { "id":"TS-462-4G",   "brand":"QNAP",     "bays":4, "quote":57000,  "minTax":54280,  "raid":["RAID0","RAID1","RAID5","RAID6","RAID10"], "expandable":false },
     { "id":"TS-464-8G",   "brand":"QNAP",     "bays":4, "quote":69000,  "minTax":66080,  "raid":["RAID0","RAID1","RAID5","RAID6","RAID10"], "expandable":false },
     { "id":"TS-664-8G",   "brand":"QNAP",     "bays":6, "quote":87000,  "minTax":82600,  "raid":["RAID0","RAID1","RAID5","RAID6","RAID10"], "expandable":false },
-    { "id":"DS1525+",     "brand":"Synology", "bays":8, "quote":142000, "minTax":135700, "raid":["RAID0","RAID1","RAID5","RAID6","RAID10"], "expandable":true  },
+    { "id":"DS1525+",     "brand":"Synology", "bays":5, "quote":142000, "minTax":135700, "raid":["RAID0","RAID1","RAID5","RAID6","RAID10"], "expandable":true  },
     { "id":"DS1825+",     "brand":"Synology", "bays":8, "quote":180000, "minTax":171100, "raid":["RAID0","RAID1","RAID5","RAID6","RAID10"], "expandable":true  },
     { "id":"TS-832PX-4G", "brand":"QNAP",     "bays":8, "quote":108000, "minTax":103250, "raid":["RAID0","RAID1","RAID5","RAID6","RAID10"], "expandable":true  },
     { "id":"TS-873A-8G",  "brand":"QNAP",     "bays":8, "quote":130000, "minTax":123900, "raid":["RAID0","RAID1","RAID5","RAID6","RAID10"], "expandable":true  }

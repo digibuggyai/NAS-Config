@@ -1,13 +1,18 @@
 /* Exercises the Apps Script parser (apps-script/Code.gs) against synthetic grids
- * shaped like the Pricing tab. The .gs file is plain ES5 with no module system,
- * so it is evaluated in a Node vm context here — the same way Apps Script runs it. */
+ * shaped like the old Pricing tab. The .gs file is plain ES5 with no module
+ * system, so it is evaluated in a Node vm context here — the same way Apps
+ * Script runs it.
+ *
+ * The sheet is no longer the source of truth (the pricing database is), but the
+ * importer is kept so the old sheet can still be pulled in, and it stays tested
+ * for as long as it exists. */
 
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
-const src = readFileSync(new URL("../apps-script/Code.gs", import.meta.url), "utf8");
+const src = readFileSync(new URL("../../apps-script/Code.gs", import.meta.url), "utf8");
 const gs = vm.createContext({ Logger:{ log(){} }, ContentService:{}, SpreadsheetApp:{} });
 vm.runInContext(src, gs);
 

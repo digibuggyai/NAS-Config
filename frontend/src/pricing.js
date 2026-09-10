@@ -1,19 +1,19 @@
 /* Pricing data source.
  *
- * Prices live in the "NAS COLD MESSAGE" Google Sheet and are edited there. An
- * Apps Script web app (apps-script/Code.gs) serves the Pricing tab as JSON, and
- * this module fetches it on every page load, so a price edited in the sheet is
- * quoted by the next rep to open the tool.
+ * Prices live in the pricing database and are edited by an admin at /admin. The
+ * backend serves them at /api/pricing and this module fetches them on every page
+ * load, so a price changed in the admin is quoted by the next rep to open the
+ * tool.
  *
  * Sources are tried in order, and the quote panel always says which one was used:
- *   1. the sheet endpoint          — live
- *   2. localStorage cache          — last good sheet response
- *   3. data/pricing.json           — checked-in transcription
+ *   1. the pricing API            — live
+ *   2. localStorage cache         — last good response
+ *   3. data/pricing.json          — offline copy
  *   4. the built-in snapshot below — so the tool never opens empty
  */
 
 import {
-  SHEET_ENDPOINT, FETCH_TIMEOUT_MS, CACHE_KEY, CACHE_STALE_AFTER_MS, ENDPOINT_OVERRIDE_KEY
+  PRICING_ENDPOINT, FETCH_TIMEOUT_MS, CACHE_KEY, CACHE_STALE_AFTER_MS, ENDPOINT_OVERRIDE_KEY
 } from "./config.js";
 
 export const FALLBACK = {
@@ -33,7 +33,7 @@ export const FALLBACK = {
 
     { id:"TS-664-8G",   brand:"QNAP",     bays:6, quote:87000,  minTax:82600,  raid:["RAID0","RAID1","RAID5","RAID6","RAID10"], expandable:false },
 
-    { id:"DS1525+",     brand:"Synology", bays:8, quote:142000, minTax:135700, raid:["RAID0","RAID1","RAID5","RAID6","RAID10"], expandable:true  },
+    { id:"DS1525+",     brand:"Synology", bays:5, quote:142000, minTax:135700, raid:["RAID0","RAID1","RAID5","RAID6","RAID10"], expandable:true  },
     { id:"DS1825+",     brand:"Synology", bays:8, quote:180000, minTax:171100, raid:["RAID0","RAID1","RAID5","RAID6","RAID10"], expandable:true  },
     { id:"TS-832PX-4G", brand:"QNAP",     bays:8, quote:108000, minTax:103250, raid:["RAID0","RAID1","RAID5","RAID6","RAID10"], expandable:true  },
     { id:"TS-873A-8G",  brand:"QNAP",     bays:8, quote:130000, minTax:123900, raid:["RAID0","RAID1","RAID5","RAID6","RAID10"], expandable:true  }
@@ -71,12 +71,12 @@ export async function loadPricing(){
 
       writeCache(raw);
       return {
-        data, source:"sheet", stale:false,
+        data, source:"api", stale:false,
         warnings: raw.warnings || [],
-        note: "Live from sheet · " + formatTime(new Date())
+        note: "Live prices · " + formatTime(new Date())
       };
     }catch(err){
-      console.warn("[pricing] live sheet fetch failed:", err.message);
+      console.warn("[pricing] live price fetch failed:", err.message);
       const cached = readCache();
       if(cached){
         const data = normalise(cached.raw);
@@ -85,8 +85,8 @@ export async function loadPricing(){
           return {
             data, source:"cache", stale,
             warnings: cached.raw.warnings || [],
-            note: (stale ? "Stale cache · " : "Cached from sheet · ") + formatDate(cached.fetchedAt) +
-                  " (sheet unreachable)"
+            note: (stale ? "Stale cache · " : "Cached prices · ") + formatDate(cached.fetchedAt) +
+                  " (server unreachable)"
           };
         }
       }
@@ -120,14 +120,13 @@ export async function loadPricing(){
 function resolveEndpoint(){
   let override = null;
   try{ override = localStorage.getItem(ENDPOINT_OVERRIDE_KEY); }catch(e){ /* storage blocked */ }
-  return (override || SHEET_ENDPOINT || "").trim();
+  return (override || PRICING_ENDPOINT || "").trim();
 }
 
 async function fetchJson(url, timeoutMs){
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try{
-    // Apps Script /exec redirects to googleusercontent; `redirect: follow` is the default and required.
     const res = await fetch(url, { signal: ctrl.signal, cache: "no-store" });
     if(!res.ok) throw new Error("HTTP " + res.status);
     return await res.json();

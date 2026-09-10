@@ -44,7 +44,7 @@ const RAID_TILES = [
 
 /* Bay counts the price sheet actually stocks are read from the models; this is
  * only the wording. */
-const BAY_NOTE = { 2:"Desktop", 4:"Common", 6:"", 8:"Max capacity" };
+const BAY_NOTE = { 2:"Desktop", 4:"Common", 5:"", 6:"", 8:"Max capacity" };
 
 const CAPACITY_NOTE = { 2:"Entry", 4:"Common", 6:"", 8:"Popular", 10:"", 12:"High density", 16:"Max density" };
 
@@ -124,13 +124,18 @@ function startAutoRefresh(){
 /** Everything the current answers imply — recomputed rather than stored.
  *  Nothing here picks a NAS unit: that stays the rep's explicit choice, so the
  *  panel never shows a total for a configuration nobody selected. */
+/** The chassis sizes the current price list actually carries. */
+function bayTiers(){
+  return [...new Set(PRICING.models.map(m => m.bays))].sort((a,b) => a - b);
+}
+
 function derive(){
   // "auto" fills the smallest chassis that reaches the target; an explicit choice
   // caps the bays per unit, so a smaller chassis means more units rather than a
   // bigger one.
   const chosenBays = answers.bays === "auto" ? null : Number(answers.bays);
   const calc = computeDrives(answers.raid, answers.driveCap, answers.targetTB, chosenBays ?? undefined);
-  const tier = chosenBays ?? bayTierFor(calc.bayNeed);
+  const tier = chosenBays ?? bayTierFor(calc.bayNeed, bayTiers());
   const candidates = candidateModels(PRICING.models, tier, answers.raid, answers.expandable);
 
   // A unit chosen earlier may no longer fit the current RAID level or bay tier.
@@ -188,13 +193,13 @@ function renderStorage(){
 
 function renderDrives(){
   const brands = validBrandsForCapacity(PRICING.hddPricing, answers.driveCap);
-  const bayTiers = [...new Set(PRICING.models.map(m => m.bays))].sort((a,b) => a-b);
+  const tiers = bayTiers();
   $("secDrives").innerHTML = `
     <div class="field">
       <span class="field-label">Chassis size</span>
       <div class="tiles compact">
         ${tile("bays", "auto", "Auto", "Smallest that fits", answers.bays === "auto", "compact")}
-        ${bayTiers.map(b =>
+        ${tiers.map(b =>
           tile("bays", b, `${b}-bay`, BAY_NOTE[b] || "", String(answers.bays) === String(b), "compact")
         ).join("")}
       </div>

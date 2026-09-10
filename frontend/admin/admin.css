@@ -1,0 +1,174 @@
+/* Admin UI. Borrows the configurator's tokens so the two feel like one product. */
+@import url("../src/styles.css");
+
+.admin{ max-width:1240px; margin:0 auto; padding:22px 22px 60px; }
+
+.topbar-actions{ display:flex; gap:9px; align-items:center; }
+.btn-ghost{
+  display:inline-flex; align-items:center; gap:7px; text-decoration:none;
+  background:none; border:1px solid var(--line); color:var(--muted);
+  border-radius:var(--radius-md); padding:9px 14px; font-size:13px; font-weight:600;
+  cursor:pointer; transition:border-color .14s var(--ease), color .14s var(--ease);
+}
+.btn-ghost:hover{ border-color:var(--accent); color:var(--accent); }
+.btn-danger{
+  background:none; border:1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  color:var(--danger); border-radius:var(--radius-md); padding:9px 14px;
+  font-size:13px; font-weight:600; cursor:pointer;
+}
+.btn-danger:hover{ background:var(--danger-soft); }
+.btn-primary{ padding:10px 16px; }
+
+/* ---------- sign in ---------- */
+.login-screen{ min-height:100dvh; display:grid; place-items:center; padding:24px; }
+.login-card{
+  width:100%; max-width:352px; background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--radius-lg); padding:30px 28px; box-shadow:var(--shadow-lg);
+  display:flex; flex-direction:column;
+}
+.login-card .brand-mark{ margin-bottom:16px; }
+.login-card h1{ font-size:19px; font-weight:700; }
+.login-sub{ margin:2px 0 22px; font-size:12.5px; color:var(--muted); }
+.login-card label{ font-size:12.5px; font-weight:600; color:var(--muted); margin:0 0 6px; }
+.login-card input{ margin-bottom:16px; }
+.login-card .btn-primary{ width:100%; margin-top:4px; }
+
+/* ---------- tabs ---------- */
+.tabs{ display:flex; gap:4px; border-bottom:1px solid var(--line); margin-bottom:20px; }
+.tab{
+  background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-1px;
+  padding:10px 14px; font-size:13.5px; font-weight:600; color:var(--muted); cursor:pointer;
+}
+.tab:hover{ color:var(--ink); }
+.tab.on{ color:var(--accent); border-bottom-color:var(--accent); }
+
+/* ---------- panels ---------- */
+.panel-head{
+  display:flex; align-items:center; justify-content:space-between; gap:14px;
+  margin-bottom:16px; flex-wrap:wrap;
+}
+.filters{ display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+.filters input[type="search"]{ width:260px; }
+.filters select{ width:auto; min-width:150px; }
+.inline-check{
+  display:inline-flex; align-items:center; gap:7px; margin:0;
+  font-size:12.8px; font-weight:500; color:var(--muted); cursor:pointer; white-space:nowrap;
+}
+.inline-check input{ width:15px; height:15px; accent-color:var(--accent); margin:0; }
+
+.table-wrap{
+  border:1px solid var(--line); border-radius:var(--radius-lg);
+  background:var(--surface); overflow-x:auto;
+}
+.grid{ width:100%; border-collapse:collapse; font-size:13px; }
+.grid th{
+  text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.04em;
+  color:var(--faint); font-weight:600; padding:11px 14px; border-bottom:1px solid var(--line);
+  white-space:nowrap; background:var(--surface-2);
+}
+.grid td{ padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:middle; }
+.grid tbody tr:last-child td{ border-bottom:none; }
+.grid tbody tr:hover{ background:var(--surface-2); }
+.grid .num{ text-align:right; font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums; }
+.grid th.num{ text-align:right; }
+.grid .name{ font-weight:600; }
+.grid .sub{ display:block; font-size:11.5px; color:var(--faint); margin-top:1px; }
+.grid .inactive{ opacity:.55; }
+.grid .unpriced{ color:var(--amber); font-style:italic; }
+.cat-row td{
+  background:var(--surface-2); font-family:"IBM Plex Mono",monospace; font-size:10.5px;
+  letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:600;
+}
+.pill{
+  display:inline-block; font-size:10.5px; font-weight:600; padding:2px 8px;
+  border-radius:100px; text-transform:uppercase; letter-spacing:.02em;
+}
+.pill-on{ background:var(--success-soft); color:var(--success); }
+.pill-off{ background:var(--surface-2); color:var(--muted); }
+.pill-admin{ background:var(--accent-soft); color:var(--accent-ink); }
+.row-action{
+  background:none; border:1px solid var(--line); border-radius:var(--radius-sm);
+  color:var(--muted); font-size:12px; font-weight:600; padding:5px 11px; cursor:pointer;
+}
+.row-action:hover{ border-color:var(--accent); color:var(--accent); }
+.table-note{ margin:10px 2px 0; font-size:12px; color:var(--faint); }
+
+/* ---------- dialogs ---------- */
+.sheet{
+  border:none; padding:0; background:transparent; max-width:none; max-height:none;
+  width:100%; height:100%;
+}
+.sheet::backdrop{ background:rgba(10,16,24,.55); }
+.sheet form{
+  width:min(720px, calc(100vw - 32px)); max-height:calc(100dvh - 48px);
+  margin:auto; display:flex; flex-direction:column;
+  background:var(--surface); color:var(--ink);
+  border:1px solid var(--line); border-radius:var(--radius-lg); box-shadow:var(--shadow-lg);
+}
+.sheet.narrow form{ width:min(460px, calc(100vw - 32px)); }
+.sheet-head{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:18px 22px; border-bottom:1px solid var(--line);
+}
+.sheet-head h2{ font-size:16px; font-weight:700; }
+.sheet-body{ padding:20px 22px; overflow-y:auto; }
+.sheet-foot{
+  display:flex; justify-content:flex-end; gap:9px;
+  padding:14px 22px; border-top:1px solid var(--line);
+}
+.sheet-foot .btn-danger{ margin-right:auto; }
+.btn-icon{
+  background:none; border:none; color:var(--muted); font-size:22px; line-height:1;
+  cursor:pointer; padding:2px 8px; border-radius:var(--radius-sm);
+}
+.btn-icon:hover{ background:var(--surface-2); color:var(--ink); }
+
+.field-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:16px; }
+.field-grid label{
+  display:flex; flex-direction:column; gap:6px; margin:0;
+  font-size:12.5px; font-weight:600; color:var(--muted);
+}
+.field-grid .wide{ grid-column:1 / -1; }
+.field-grid input, .field-grid select{ font-weight:400; color:var(--ink); }
+@media (max-width:560px){ .field-grid{ grid-template-columns:1fr; } }
+
+.raid-set{ border:1px solid var(--line); border-radius:var(--radius-md); padding:12px 14px; margin:0; }
+.raid-set legend{ font-size:11.5px; font-weight:600; color:var(--muted); padding:0 6px; }
+.raid-row{ display:flex; flex-wrap:wrap; gap:14px; }
+
+.price-block{
+  border:1px solid var(--line); border-radius:var(--radius-md);
+  padding:16px 18px; margin-bottom:16px; background:var(--surface-2);
+}
+.price-block h3{ font-size:13.5px; font-weight:700; margin-bottom:4px; }
+.price-block .hint{ margin:0 0 14px; }
+.computed{
+  margin:0; font-family:"IBM Plex Mono",monospace; font-size:12.5px; color:var(--accent-ink);
+}
+.computed b{ color:var(--accent); }
+
+.history{ border-top:1px solid var(--line); padding-top:14px; }
+.history summary{ cursor:pointer; font-size:13px; font-weight:600; color:var(--muted); }
+.history summary:hover{ color:var(--accent); }
+.hist-row{
+  display:flex; justify-content:space-between; gap:12px; align-items:baseline;
+  padding:9px 0; border-bottom:1px solid var(--line); font-size:12.5px;
+}
+.hist-row:last-child{ border-bottom:none; }
+.hist-when{ font-family:"IBM Plex Mono",monospace; color:var(--muted); white-space:nowrap; }
+.hist-amounts{ font-family:"IBM Plex Mono",monospace; }
+.hist-note{ font-size:11.5px; color:var(--faint); }
+
+.form-error{ margin:12px 0 0; font-size:12.5px; color:var(--danger); min-height:16px; }
+
+/* ---------- toast ---------- */
+.toast{
+  position:fixed; left:50%; bottom:26px; transform:translateX(-50%);
+  background:var(--ink); color:var(--paper); border-radius:100px;
+  padding:11px 22px; font-size:13px; font-weight:600; z-index:100;
+  box-shadow:var(--shadow-lg); animation:toastIn .18s var(--ease);
+}
+.toast.bad{ background:var(--danger); color:#fff; }
+@keyframes toastIn{ from{ opacity:0; transform:translate(-50%, 8px); } to{ opacity:1; transform:translate(-50%,0); } }
+
+.empty{ padding:34px 20px; text-align:center; color:var(--faint); font-size:13px; }

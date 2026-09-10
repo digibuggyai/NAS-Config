@@ -76,11 +76,19 @@ test("an impossible chassis size is rejected rather than looping", () => {
   assert.throws(() => computeDrives("RAID5", 8, 20, 1), /at least 2/);
 });
 
-test("bay tiers round up", () => {
+test("bay tiers round up to a size actually sold", () => {
   assert.equal(bayTierFor(1), 2);
   assert.equal(bayTierFor(3), 4);
-  assert.equal(bayTierFor(5), 6);
+  assert.equal(bayTierFor(5), 5);      // the DS1525+ is a 5-bay chassis
   assert.equal(bayTierFor(7), 8);
+});
+
+test("the tier list comes from the catalogue, not a hardcoded ladder", () => {
+  // A price list with only 4- and 8-bay units must never route to a 6-bay tier.
+  assert.equal(bayTierFor(5, [4, 8]), 8);
+  assert.equal(bayTierFor(3, [4, 8]), 4);
+  // Beyond the largest chassis sold, the largest is the answer.
+  assert.equal(bayTierFor(99, [2, 4]), 4);
 });
 
 test("candidates are filtered by bay tier + RAID, cheapest first", () => {

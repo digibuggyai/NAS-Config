@@ -2,11 +2,21 @@
   "name": "nas-configurator",
   "version": "1.0.0",
   "private": true,
-  "description": "DigiBuggy internal NAS sales configurator — guided sizing, live quotation, PDF export.",
+  "description": "DigiBuggy internal NAS sales configurator \u2014 pricing backend, admin UI and quoting front end.",
   "type": "module",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
   "scripts": {
-    "start": "npx --yes serve@14 . -l 5173",
-    "test": "node --test test/"
+    "start": "node backend/index.js",
+    "dev": "node backend/index.js",
+    "seed": "node backend/seed.js",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.15.15",
+    "express": "^5.1.0"
   },
   "devDependencies": {
     "jsdom": "^29.1.1"

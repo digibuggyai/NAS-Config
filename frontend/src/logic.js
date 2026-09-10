@@ -9,7 +9,9 @@ export const RAID_INFO = {
   RAID10: { minDrives:4, step:2, label:"RAID 10 — mirror + stripe (50% usable, fastest rebuild)" }
 };
 
-export const BAY_TIERS = [2,4,6,8];
+/* Chassis sizes are whatever the price list stocks — a 5-bay DS1525+ is as real
+ * as a 4-bay, so nothing here assumes a fixed 2/4/6/8 ladder. */
+export const DEFAULT_BAY_TIERS = [2,4,5,6,8];
 export const MAX_BAYS = 8;
 
 export function inr(n){
@@ -66,9 +68,10 @@ export function computeDrives(raid, driveTB, targetTB, maxBays = MAX_BAYS){
   };
 }
 
-/** Smallest bay tier that fits `n` drives. */
-export function bayTierFor(n){
-  return BAY_TIERS.find(t => t >= n) ?? MAX_BAYS;
+/** Smallest chassis size that fits `n` drives, out of the sizes actually sold. */
+export function bayTierFor(n, tiers = DEFAULT_BAY_TIERS){
+  const sorted = [...tiers].sort((a,b) => a - b);
+  return sorted.find(t => t >= n) ?? sorted[sorted.length - 1] ?? MAX_BAYS;
 }
 
 export function validBrandsForCapacity(hddPricing, cap){

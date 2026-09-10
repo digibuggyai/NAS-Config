@@ -1,0 +1,10 @@
+{
+  "name": "@nas/frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The configurator page and the admin UI \u2014 plain HTML/CSS/ES modules, no build step.",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}

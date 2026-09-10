@@ -33,7 +33,7 @@ var BAY_HINTS = {
   'DS223J': 2, 'DS225+': 2, 'DS725+': 2, 'TS-233-2G': 2, 'TS-216G-4G': 2,
   'DS425+': 4, 'DS925+': 4, 'TS-433-4G': 4, 'TS-462-4G': 4, 'TS-464-8G': 4,
   'TS-664-8G': 6,
-  'DS1525+': 8, 'DS1825+': 8, 'TS-832PX-4G': 8, 'TS-873A-8G': 8
+  'DS1525+': 5, 'DS1825+': 8, 'TS-832PX-4G': 8, 'TS-873A-8G': 8
 };
 
 /* Expandability is product-line knowledge, not sheet data — see README "Known gaps". */
