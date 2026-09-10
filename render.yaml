@@ -1,0 +1,16 @@
+# Render blueprint. Set DATABASE_URL in the dashboard (or link a Neon secret);
+# it is deliberately not in this file, which is committed.
+services:
+  - type: web
+    name: nas-configurator
+    runtime: node
+    plan: free
+    region: singapore          # closest Render region to India
+    buildCommand: npm ci --omit=dev
+    startCommand: node backend/index.js
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false            # set by hand; never committed

@@ -113,15 +113,25 @@ async function postgresDriver(url){
   const { default: pg } = await import("pg");
 
   const local = /localhost|127\.0\.0\.1/.test(url);
+
+  /* Neon's string carries `sslmode=require&channel_binding=require`. node-postgres
+     isn't libpq: it warns that it treats those modes as verify-full, and it has no
+     channel binding at all. Both are dropped so the explicit `ssl` below is the
+     single source of truth — which is verify-full behaviour anyway. */
+  const cleaned = stripLibpqParams(url);
+
   const pool = new pg.Pool({
-    connectionString: url,
+    connectionString: cleaned,
     /* Hosted Postgres (Neon, Render, Railway) presents a certificate from a
        public CA, so it is verified properly. Set PGSSL_NO_VERIFY=1 only for a
        server using a self-signed certificate. */
     ssl: local ? false : { rejectUnauthorized: process.env.PGSSL_NO_VERIFY !== "1" },
     /* A serverless database sleeps when idle and takes a moment to wake, which
        is longer than the default 0ms "give up immediately". */
-    connectionTimeoutMillis: Number(process.env.PGCONNECT_TIMEOUT_MS) || 15000,
+    /* A suspended Neon compute has taken 16s to wake in practice, so the ceiling
+       is well clear of that; a genuinely unreachable database still fails fast
+       enough to notice. */
+    connectionTimeoutMillis: Number(process.env.PGCONNECT_TIMEOUT_MS) || 30000,
     idleTimeoutMillis: 30000,
     max: Number(process.env.PGPOOL_MAX) || 10,
     keepAlive: true
@@ -162,9 +172,45 @@ async function postgresDriver(url){
   };
 }
 
+/** Removes connection parameters that libpq understands and node-postgres does
+ *  not, leaving TLS entirely to the driver's own `ssl` option. */
+export function stripLibpqParams(url){
+  try{
+    const u = new URL(url);
+    for(const p of ["sslmode", "channel_binding"]) u.searchParams.delete(p);
+    return u.toString();
+  }catch{
+    return url;                       // not a URL we can parse; hand it over as-is
+  }
+}
+
 /* ---------------- lifecycle ---------------- */
 
-/** Opens the database and applies the schema. Safe to call more than once. */
+/** Errors worth retrying: a serverless database waking up, or a pooler dropping
+ *  an idle connection. A wrong password or a missing table is not one of these. */
+const TRANSIENT = /ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|Connection terminated|terminating connection|starting up|too many clients/i;
+
+export async function withRetry(fn, { attempts = 3, delayMs = 1200, label = "query" } = {}){
+  let last;
+  for(let i = 1; i <= attempts; i++){
+    try{
+      return await fn();
+    }catch(err){
+      last = err;
+      if(!TRANSIENT.test(err.message || "") || i === attempts) throw err;
+      console.warn(`[db] ${label} failed (${err.message}); retry ${i} of ${attempts - 1}`);
+      await new Promise(r => setTimeout(r, delayMs * i));   // back off a little each time
+    }
+  }
+  throw last;
+}
+
+/** Opens the database and applies the schema. Safe to call more than once.
+ *
+ *  Start-up is retried: a suspended Neon compute frequently drops the first
+ *  connection while it wakes, and a server that dies on boot for that reason is
+ *  indistinguishable from a real outage.
+ */
 export async function initDb({ url = process.env.DATABASE_URL, file = process.env.SQLITE_FILE } = {}){
   if(driver) return driver;
 
@@ -173,8 +219,13 @@ export async function initDb({ url = process.env.DATABASE_URL, file = process.en
     : await sqliteDriver(file || join(here, "data", "nas.db"));
 
   const schema = readFileSync(join(here, "schema.sql"), "utf8");
-  await driver.exec(schema);
-  await migrate(driver);
+  try{
+    await withRetry(() => driver.exec(schema), { label: "schema" });
+    await withRetry(() => migrate(driver), { label: "migrations" });
+  }catch(err){
+    driver = null;             // a half-open driver is worse than none
+    throw err;
+  }
   return driver;
 }
 

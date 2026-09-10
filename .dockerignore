@@ -1,0 +1,20 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+
+# credentials and local state must never enter an image
+backend/.env
+backend/data
+backend/ADMIN-PASSWORD.txt
+**/*.db
+**/*.db-*
+
+# not needed to run
+frontend/test
+backend/test
+docs
+apps-script
+README.md
+Dockerfile
+.dockerignore

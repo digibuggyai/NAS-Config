@@ -127,3 +127,22 @@ test("loading .env never overwrites the real environment", async () => {
   delete process.env.NAS_TEST_KEEP;
   delete process.env.NAS_TEST_NEW;
 });
+
+test("libpq-only connection parameters are dropped before pg sees them", async () => {
+  const { stripLibpqParams } = await import("../db.js");
+
+  // Neon hands out exactly this shape; node-postgres warns on sslmode and has no
+  // channel binding, so both are removed and the driver's ssl option governs.
+  const neon = "postgresql://u:p@ep-x-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+  const out = stripLibpqParams(neon);
+  assert.ok(!out.includes("sslmode"));
+  assert.ok(!out.includes("channel_binding"));
+  assert.ok(out.startsWith("postgresql://u:p@ep-x-pooler.c-2.us-east-2.aws.neon.tech/neondb"));
+
+  // anything else in the string is left alone
+  const withOther = stripLibpqParams("postgresql://u:p@h/db?sslmode=require&application_name=nas");
+  assert.ok(withOther.includes("application_name=nas"));
+
+  // and an unparseable string is passed through rather than mangled
+  assert.equal(stripLibpqParams("not a url"), "not a url");
+});

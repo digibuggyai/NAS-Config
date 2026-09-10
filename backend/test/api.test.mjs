@@ -296,3 +296,49 @@ test("a short password is refused", async () => {
   });
   assert.equal(res.status, 400);
 });
+
+/* ---------------- production hardening ---------------- */
+
+test("security headers are set on every response", async () => {
+  const res = await fetch(base + "/healthz");
+  assert.equal(res.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(res.headers.get("x-frame-options"), "SAMEORIGIN");
+  assert.equal(res.headers.get("referrer-policy"), "same-origin");
+  assert.equal(res.headers.get("x-powered-by"), null, "the framework isn't advertised");
+});
+
+test("repeated wrong passwords are throttled", async () => {
+  const { loginRateLimit, clearLoginAttempts } = await import("../ratelimit.js");
+
+  // drive the middleware directly: the limit is per-IP and the test client
+  // shares one, so this keeps it from throttling the rest of the suite
+  const req = { method:"POST", ip:"203.0.113.9" };
+  const run = () => new Promise(resolve => {
+    const res = {
+      statusCode: 200, body: null,
+      set(){ return this; },
+      status(c){ this.statusCode = c; return this; },
+      json(b){ this.body = b; resolve(this); return this; }
+    };
+    loginRateLimit(req, res, () => resolve({ statusCode: 200, passed: true }));
+  });
+
+  for(let i = 0; i < 10; i++){
+    const r = await run();
+    assert.ok(r.passed, `attempt ${i + 1} still allowed`);
+  }
+  const blocked = await run();
+  assert.equal(blocked.statusCode, 429);
+  assert.match(blocked.body.error, /Too many sign-in attempts/);
+
+  // a successful sign-in wipes the strikes
+  clearLoginAttempts("203.0.113.9");
+  assert.ok((await run()).passed, "allowed again after a good sign-in");
+});
+
+test("a GET to the login path is not counted against the limit", async () => {
+  const { loginRateLimit } = await import("../ratelimit.js");
+  let passed = false;
+  loginRateLimit({ method:"GET", ip:"203.0.113.10" }, {}, () => { passed = true; });
+  assert.ok(passed);
+});

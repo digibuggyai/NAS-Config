@@ -12,6 +12,7 @@ import {
   hashPassword, verifyPassword, createSession, destroySession, pruneSessions,
   readCookie, setSessionCookie, clearSessionCookie, requireRole
 } from "./auth.js";
+import { clearLoginAttempts } from "./ratelimit.js";
 
 export const router = express.Router();
 
@@ -36,6 +37,7 @@ router.post("/auth/login", wrap(async (req, res) => {
   if(!ok) return res.status(401).json({ error: "Wrong email or password" });
 
   await pruneSessions();
+  clearLoginAttempts(req.ip);          // a correct sign-in wipes the strike count
   const { token, expires } = await createSession(user.id);
   setSessionCookie(res, token, expires);
   res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role } });
