@@ -1,7 +1,7 @@
 import { loadPricing } from "./pricing.js";
 import { AUTO_REFRESH_MS } from "./config.js";
 import {
-  RAID_INFO, USE_CASE_INFO, inr, computeDrives, bayTierFor,
+  RAID_INFO, inr, computeDrives, bayTierFor,
   validBrandsForCapacity, candidateModels, priceQuote
 } from "./logic.js";
 import { buildPdf, quoteRef, quoteFilename } from "./pdf.js";
@@ -10,42 +10,41 @@ const $ = id => document.getElementById(id);
 
 let PRICING = null;                    // set in init()
 
-/* Every answer lives here; the UI is drawn from it. Text inputs are the one
- * exception — they write into state on input but are not redrawn, so the caret
- * stays put while someone is typing. */
+/* Every answer lives here; the sections are drawn from it. Text inputs are the
+ * one exception — they write into state on input but are never redrawn, so the
+ * caret stays put while someone is typing. */
 const answers = {
   targetTB: 20,
-  useCase: "general",
-  raid: "RAID1",
+  raid: "RAID5",
+  bays: "auto",                        // "auto" = smallest chassis that fits
   driveCap: 8,
   driveBrand: null,
   speed: "1GbE",
   expandable: false,
   includeInstall: true,
-  includeRMA: false,
-  modelId: null,
+  includeAMC: false,
+  modelId: null,                       // stays null until the rep picks one
   custName: "", custLocation: "", repName: "", validity: "15 days"
 };
 
-const ui = { step: 1, maxStep: 1, lastQuote: null, priceSource: null };
+const ui = { lastQuote: null, priceSource: null };
 
-const STEPS = [
-  { key:"storage", label:"Storage",  eyebrow:"Step 1",
-    title:"How much storage does the customer need?",
-    blurb:"Set the usable capacity they need today, then pick what the system is for — it pre-fills a sensible RAID level and network speed." },
-  { key:"drives",  label:"Drives",   eyebrow:"Step 2",
-    title:"RAID level and disks",
-    blurb:"These decide how many drives are needed and which chassis size the quote lands on. Every default is overridable." },
-  { key:"model",   label:"Unit",     eyebrow:"Step 3",
-    title:"Pick the NAS unit",
-    blurb:"Units in the price sheet that fit the bay count and RAID level above, cheapest first." },
-  { key:"addons",  label:"Add-ons",  eyebrow:"Step 4",
-    title:"Services to include",
-    blurb:"Both are optional and priced from the sheet." },
-  { key:"details", label:"Details",  eyebrow:"Step 5",
-    title:"Who is this quote for?",
-    blurb:"These appear on the PDF header." }
+const STORAGE_MIN = 2;
+const STORAGE_MAX = 200;
+
+const clampTB = n => Math.min(Math.max(Math.round(n) || STORAGE_MIN, STORAGE_MIN), STORAGE_MAX);
+
+const RAID_TILES = [
+  ["RAID0","RAID 0","Striping · no redundancy"],
+  ["RAID1","RAID 1","Mirrored · 50% usable"],
+  ["RAID5","RAID 5","Parity · survives 1 failure"],
+  ["RAID6","RAID 6","Dual parity · survives 2"],
+  ["RAID10","RAID 10","Mirror + stripe · fast rebuild"]
 ];
+
+/* Bay counts the price sheet actually stocks are read from the models; this is
+ * only the wording. */
+const BAY_NOTE = { 2:"Desktop", 4:"Common", 6:"", 8:"Max capacity" };
 
 const CAPACITY_NOTE = { 2:"Entry", 4:"Common", 6:"", 8:"Popular", 10:"", 12:"High density", 16:"Max density" };
 
@@ -97,8 +96,7 @@ async function refreshPrices({ silent = false } = {}){
   try{
     applyPricing(await loadPricing());
     lastFetchAt = Date.now();
-    renderStep();
-    renderQuote();
+    renderAll();
   }finally{
     btn.disabled = false;
   }
@@ -123,31 +121,35 @@ function startAutoRefresh(){
 
 /* ================= derived configuration ================= */
 
-/** Everything the current answers imply — recomputed rather than stored. */
+/** Everything the current answers imply — recomputed rather than stored.
+ *  Nothing here picks a NAS unit: that stays the rep's explicit choice, so the
+ *  panel never shows a total for a configuration nobody selected. */
 function derive(){
-  const calc = computeDrives(answers.raid, answers.driveCap, answers.targetTB);
-  const tier = bayTierFor(calc.bayNeed);
+  // "auto" fills the smallest chassis that reaches the target; an explicit choice
+  // caps the bays per unit, so a smaller chassis means more units rather than a
+  // bigger one.
+  const chosenBays = answers.bays === "auto" ? null : Number(answers.bays);
+  const calc = computeDrives(answers.raid, answers.driveCap, answers.targetTB, chosenBays ?? undefined);
+  const tier = chosenBays ?? bayTierFor(calc.bayNeed);
   const candidates = candidateModels(PRICING.models, tier, answers.raid, answers.expandable);
 
-  if(candidates.length && !candidates.some(m => m.id === answers.modelId)){
-    answers.modelId = candidates[0].id;
-  }
-  if(!candidates.length) answers.modelId = null;
+  // A unit chosen earlier may no longer fit the current RAID level or bay tier.
+  if(answers.modelId && !candidates.some(m => m.id === answers.modelId)) answers.modelId = null;
 
-  const model = PRICING.models.find(m => m.id === answers.modelId) || null;
+  const model = candidates.find(m => m.id === answers.modelId) || null;
   const price = priceQuote({
     model, calc,
     drivePrice: PRICING.hddPricing[answers.driveCap]?.[answers.driveBrand],
     install: PRICING.install,
-    rmaRate: PRICING.rmaRate,
+    amcRate: PRICING.amcRate,
     includeInstall: answers.includeInstall,
-    includeRMA: answers.includeRMA
+    includeAMC: answers.includeAMC
   });
 
   return { calc, tier, candidates, model, price };
 }
 
-/* ================= step rendering ================= */
+/* ================= sections ================= */
 
 function tile(name, value, title, sub, selected, extraClass = ""){
   return `<label class="tile ${extraClass} ${selected ? "selected" : ""}">
@@ -157,295 +159,254 @@ function tile(name, value, title, sub, selected, extraClass = ""){
   </label>`;
 }
 
-function renderStep(){
-  const step = STEPS[ui.step - 1];
-  const d = derive();
-
-  $("stepBody").innerHTML =
-    `<div class="step-head">
-       <div class="step-eyebrow">${step.eyebrow} of ${STEPS.length}</div>
-       <h2>${step.title}</h2>
-       <p>${step.blurb}</p>
-     </div>` + STEP_BODY[step.key](d);
-
-  renderProgress();
-  renderNav(d);
+function renderStorage(){
+  const presets = [10, 20, 50, 100];
+  $("secStorage").innerHTML = `
+    <div class="field">
+      <span class="field-label">Usable storage needed</span>
+      <div class="storage-row">
+        <div class="storage-entry">
+          <input type="number" id="storageInput" class="storage-input mono"
+                 min="${STORAGE_MIN}" max="${STORAGE_MAX}" step="1" value="${answers.targetTB}"
+                 inputmode="numeric" aria-label="Usable storage in terabytes">
+          <span class="storage-unit">TB</span>
+        </div>
+        <div class="slider-wrap">
+          <input type="range" id="storageRange" min="${STORAGE_MIN}" max="${STORAGE_MAX}" step="1"
+                 value="${answers.targetTB}" aria-label="Usable storage slider">
+          <div class="range-scale"><span>${STORAGE_MIN} TB</span><span>${STORAGE_MAX} TB</span></div>
+        </div>
+      </div>
+      <div class="presets">
+        ${presets.map(p =>
+          `<button type="button" class="chip${answers.targetTB === p ? " on" : ""}" data-preset="${p}">${p} TB</button>`
+        ).join("")}
+      </div>
+      <p class="hint">Type a figure or drag the slider — anything from ${STORAGE_MIN} to ${STORAGE_MAX} TB.</p>
+    </div>`;
 }
 
-const STEP_BODY = {
-  storage(){
-    const presets = [10, 20, 50, 100];
-    return `
-      <div class="field">
-        <span class="field-label">Usable storage needed</span>
-        <div class="storage-row">
-          <div class="storage-value mono">${answers.targetTB}<small>TB</small></div>
-          <div class="slider-wrap">
-            <input type="range" id="storageRange" min="2" max="200" step="1"
-                   value="${answers.targetTB}" aria-label="Usable storage in terabytes">
-            <div class="range-scale"><span>2 TB</span><span>200 TB</span></div>
-          </div>
-        </div>
-        <div class="presets">
-          ${presets.map(p =>
-            `<button type="button" class="chip${answers.targetTB === p ? " on" : ""}" data-preset="${p}">${p} TB</button>`
-          ).join("")}
-        </div>
+function renderDrives(){
+  const brands = validBrandsForCapacity(PRICING.hddPricing, answers.driveCap);
+  const bayTiers = [...new Set(PRICING.models.map(m => m.bays))].sort((a,b) => a-b);
+  $("secDrives").innerHTML = `
+    <div class="field">
+      <span class="field-label">Chassis size</span>
+      <div class="tiles compact">
+        ${tile("bays", "auto", "Auto", "Smallest that fits", answers.bays === "auto", "compact")}
+        ${bayTiers.map(b =>
+          tile("bays", b, `${b}-bay`, BAY_NOTE[b] || "", String(answers.bays) === String(b), "compact")
+        ).join("")}
       </div>
+      <p class="hint">${baysHint()}</p>
+    </div>
 
-      <div class="field">
-        <span class="field-label">What will they mainly use it for?</span>
-        <div class="tiles cols-2">
-          ${[
-            ["general","General file sharing &amp; backup","Everyday shared storage"],
-            ["media","Media &amp; video editing","Large files, multiple editors"],
-            ["surveillance","Surveillance / CCTV","Continuous camera recording"],
-            ["virtualization","Virtualization &amp; business apps","VMs and business-critical loads"],
-            ["archival","Archival / cold backup","Long-term retention"],
-            ["database","Database / trading","Low-latency, high-write"]
-          ].map(([v,t,s]) => tile("useCase", v, t, s, answers.useCase === v)).join("")}
-        </div>
-        <p class="hint">${USE_CASE_INFO[answers.useCase].note}</p>
-      </div>`;
-  },
-
-  drives(){
-    const brands = validBrandsForCapacity(PRICING.hddPricing, answers.driveCap);
-    return `
-      <div class="field">
-        <span class="field-label">RAID level</span>
-        <div class="tiles">
-          ${[
-            ["RAID0","RAID 0","Striping · no redundancy"],
-            ["RAID1","RAID 1","Mirrored · 50% usable"],
-            ["RAID5","RAID 5","Parity · survives 1 failure"],
-            ["RAID6","RAID 6","Dual parity · survives 2"],
-            ["RAID10","RAID 10","Mirror + stripe · fast rebuild"]
-          ].map(([v,t,s]) => tile("raid", v, t, s, answers.raid === v)).join("")}
-        </div>
-        <p class="hint">${RAID_INFO[answers.raid].label}</p>
+    <div class="field">
+      <span class="field-label">RAID level</span>
+      <div class="tiles">
+        ${RAID_TILES.map(([v,t,s]) => tile("raid", v, t, s, answers.raid === v)).join("")}
       </div>
+      <p class="hint">${RAID_INFO[answers.raid].label}</p>
+    </div>
 
-      <div class="field">
-        <span class="field-label">Drive capacity, per disk</span>
-        <div class="tiles compact">
-          ${PRICING.capacities.map(c =>
-            tile("driveCap", c, `${c} TB`, CAPACITY_NOTE[c] || "", answers.driveCap === c, "compact")
-          ).join("")}
-        </div>
+    <div class="field">
+      <span class="field-label">Drive capacity, per disk</span>
+      <div class="tiles compact">
+        ${PRICING.capacities.map(c =>
+          tile("driveCap", c, `${c} TB`, CAPACITY_NOTE[c] || "", answers.driveCap === c, "compact")
+        ).join("")}
       </div>
+    </div>
 
-      <div class="field">
-        <span class="field-label">Drive line</span>
-        <div class="tiles">
-          ${brands.length
-            ? brands.map(b => {
-                const p = PRICING.hddPricing[answers.driveCap][b];
-                return tile("driveBrand", b, b, `${inr(p.min)} – ${inr(p.quote)} each`, answers.driveBrand === b);
-              }).join("")
-            : `<p class="hint">No drive line is priced at ${answers.driveCap} TB in the sheet.</p>`}
-        </div>
+    <div class="field">
+      <span class="field-label">Drive line</span>
+      <div class="tiles">
+        ${brands.length
+          ? brands.map(b => {
+              const p = PRICING.hddPricing[answers.driveCap][b];
+              return tile("driveBrand", b, b, `${inr(p.min)} – ${inr(p.quote)} each`, answers.driveBrand === b);
+            }).join("")
+          : `<p class="hint">No drive line is priced at ${answers.driveCap} TB in the sheet.</p>`}
       </div>
+    </div>
 
-      <div class="field">
-        <span class="field-label">Network speed the customer needs</span>
-        <div class="tiles">
-          ${SPEEDS.map(s => tile("speed", s.v, s.v, s.sub, answers.speed === s.v)).join("")}
-        </div>
-        <p class="hint">Captured as a requirement note on the quote — not matched against per-model NIC specs.</p>
+    <div class="field">
+      <span class="field-label">Network speed the customer needs</span>
+      <div class="tiles">
+        ${SPEEDS.map(s => tile("speed", s.v, s.v, s.sub, answers.speed === s.v)).join("")}
       </div>
+      <p class="hint">Captured as a requirement note on the quote — not matched against per-model NIC specs.</p>
+    </div>
 
-      <div class="field">
-        <label class="tile tile-check ${answers.expandable ? "selected" : ""}">
-          <input type="checkbox" name="expandable"${answers.expandable ? " checked" : ""}>
-          <span>
-            <span class="tile-title">Customer wants room to expand later</span>
-            <span class="tile-sub">Floats expansion-capable units to the top of the list</span>
-          </span>
-        </label>
-      </div>`;
-  },
-
-  model(d){
-    const warning = d.calc.exceeded
-      ? `<div class="banner"><span>⚠</span><span><b>${d.calc.units}× ${d.tier}-bay units needed.</b>
-          ${answers.driveCap} TB drives in ${answers.raid} top out around ${d.calc.usablePerUnit} TB usable per
-          chassis — this target needs multiple units, or larger drives. Pricing is scaled to ${d.calc.units} units.</span></div>`
-      : "";
-
-    const list = d.candidates.length
-      ? d.candidates.map((m, i) => `
-          <label class="model-card ${m.id === answers.modelId ? "selected" : ""}">
-            <input type="radio" name="modelId" value="${escapeAttr(m.id)}"${m.id === answers.modelId ? " checked" : ""}>
-            <span class="model-main">
-              <span class="model-title-row">
-                <span class="model-name">${escapeHtml(m.id)}</span>
-                <span class="badge badge-brand">${escapeHtml(m.brand)}</span>
-                ${i === 0 && !answers.expandable ? '<span class="badge badge-best">Best price</span>' : ""}
-                ${m.expandable ? '<span class="badge badge-expand">Expandable</span>' : ""}
-              </span>
-              <span class="model-meta">${m.bays}-bay · ${d.calc.drivesPerUnit} of ${m.bays} bays used · supports ${m.raid.join(", ").replace(/RAID/g,"R")}</span>
-            </span>
-            <span class="model-price">
-              <span class="max mono">${inr(m.quote * d.calc.units)}</span>
-              <span class="min mono">${inr(m.minTax * d.calc.units)} min</span>
-            </span>
-          </label>`).join("")
-      : `<p class="hint">No unit in the price sheet has ${d.tier} bays with ${answers.raid} support.
-         Go back and widen the RAID level or use a larger drive.</p>`;
-
-    return warning + `<div class="model-list">${list}</div>`;
-  },
-
-  addons(){
-    const rma = `${Math.round(PRICING.rmaRate.min*100)}% – ${Math.round(PRICING.rmaRate.quote*100)}%`;
-    return `
-      <label class="addon-row ${answers.includeInstall ? "on" : ""}">
-        <span class="addon-left">
-          <input type="checkbox" name="includeInstall"${answers.includeInstall ? " checked" : ""}>
-          <span>
-            <span class="addon-title">On-site installation &amp; setup</span>
-            <span class="addon-sub">Racking, RAID configuration, network setup. Charged per NAS unit.</span>
-          </span>
+    <div class="field">
+      <label class="tile tile-check ${answers.expandable ? "selected" : ""}">
+        <input type="checkbox" name="expandable"${answers.expandable ? " checked" : ""}>
+        <span>
+          <span class="tile-title">Customer wants room to expand later</span>
+          <span class="tile-sub">Floats expansion-capable units to the top of the list</span>
         </span>
-        <span class="addon-price">${inr(PRICING.install.min)} – ${inr(PRICING.install.quote)}</span>
       </label>
+    </div>`;
+}
 
-      <label class="addon-row ${answers.includeRMA ? "on" : ""}">
-        <span class="addon-left">
-          <input type="checkbox" name="includeRMA"${answers.includeRMA ? " checked" : ""}>
-          <span>
-            <span class="addon-title">Extended RMA coverage</span>
-            <span class="addon-sub">Percentage of the hardware subtotal — installation is not marked up.</span>
+/** Says what the chassis choice actually produced, since picking a small one can
+ *  silently turn a single-unit quote into several. */
+function baysHint(){
+  const d = derive();
+  if(answers.bays === "auto"){
+    return `Using ${d.tier} bays — the smallest chassis that reaches ${answers.targetTB} TB at ${answers.raid}.`;
+  }
+  return d.calc.units > 1
+    ? `${d.calc.units}× ${d.tier}-bay units, ${d.calc.drivesPerUnit} drives each.`
+    : `${d.calc.drivesPerUnit} of ${d.tier} bays used.`;
+}
+
+function renderModel(d){
+  const warning = d.calc.exceeded
+    ? `<div class="banner"><span>⚠</span><span><b>${d.calc.units}× ${d.tier}-bay units needed.</b>
+        ${answers.driveCap} TB drives in ${answers.raid} top out around ${d.calc.usablePerUnit} TB usable per
+        chassis — this target needs multiple units, or larger drives. Pricing is scaled to ${d.calc.units} units.</span></div>`
+    : "";
+
+  const prompt = !d.model && d.candidates.length
+    ? `<p class="select-prompt">Select a unit to price the quotation.</p>`
+    : "";
+
+  const list = d.candidates.length
+    ? d.candidates.map((m, i) => `
+        <label class="model-card ${m.id === answers.modelId ? "selected" : ""}">
+          <input type="radio" name="modelId" value="${escapeAttr(m.id)}"${m.id === answers.modelId ? " checked" : ""}>
+          <span class="model-main">
+            <span class="model-title-row">
+              <span class="model-name">${escapeHtml(m.id)}</span>
+              <span class="badge badge-brand">${escapeHtml(m.brand)}</span>
+              ${i === 0 && !answers.expandable ? '<span class="badge badge-best">Best price</span>' : ""}
+              ${m.expandable ? '<span class="badge badge-expand">Expandable</span>' : ""}
+            </span>
+            <span class="model-meta">${m.bays}-bay · ${d.calc.drivesPerUnit} of ${m.bays} bays used · supports ${m.raid.join(", ").replace(/RAID/g,"R")}</span>
           </span>
-        </span>
-        <span class="addon-price">${rma} of hardware</span>
-      </label>`;
-  },
+          <span class="model-price">
+            <span class="max mono">${inr(m.quote * d.calc.units)}</span>
+            <span class="min mono">${inr(m.minTax * d.calc.units)} min</span>
+          </span>
+        </label>`).join("")
+    : `<p class="hint">No unit in the price sheet has ${d.tier} bays with ${answers.raid} support.
+       Widen the RAID level above, or use a larger drive.</p>`;
 
-  details(){
-    return `
-      <div class="field">
-        <div class="grid-2">
-          <div>
-            <span class="field-label">Customer / company name</span>
-            <input type="text" name="custName" value="${escapeAttr(answers.custName)}" placeholder="e.g. Aarav Enterprises" autocomplete="off">
-          </div>
-          <div>
-            <span class="field-label">Location</span>
-            <input type="text" name="custLocation" value="${escapeAttr(answers.custLocation)}" placeholder="City" autocomplete="off">
+  $("secModel").innerHTML = warning + prompt + `<div class="model-list">${list}</div>`;
+}
+
+function renderAddons(){
+  const amc = `${Math.round(PRICING.amcRate.min*100)}% – ${Math.round(PRICING.amcRate.quote*100)}%`;
+  $("secAddons").innerHTML = `
+    <label class="addon-row ${answers.includeInstall ? "on" : ""}">
+      <span class="addon-left">
+        <input type="checkbox" name="includeInstall"${answers.includeInstall ? " checked" : ""}>
+        <span>
+          <span class="addon-title">On-site installation &amp; setup</span>
+          <span class="addon-sub">Racking, RAID configuration, network setup. Charged per NAS unit.</span>
+        </span>
+      </span>
+      <span class="addon-price">${inr(PRICING.install.min)} – ${inr(PRICING.install.quote)}</span>
+    </label>
+
+    <label class="addon-row ${answers.includeAMC ? "on" : ""}">
+      <span class="addon-left">
+        <input type="checkbox" name="includeAMC"${answers.includeAMC ? " checked" : ""}>
+        <span>
+          <span class="addon-title">AMC — annual maintenance cost</span>
+          <span class="addon-sub">Percentage of the hardware subtotal — installation is not marked up.</span>
+        </span>
+      </span>
+      <span class="addon-price">${amc} of hardware</span>
+    </label>`;
+}
+
+/** Rendered once. Redrawing it would move the caret out from under whoever is typing. */
+function renderDetails(){
+  $("secDetails").innerHTML = `
+    <div class="field">
+      <div class="grid-2">
+        <div>
+          <span class="field-label">Customer / company name</span>
+          <input type="text" name="custName" value="${escapeAttr(answers.custName)}" placeholder="e.g. Aarav Enterprises" autocomplete="off">
+        </div>
+        <div>
+          <span class="field-label">Location</span>
+          <input type="text" name="custLocation" value="${escapeAttr(answers.custLocation)}" placeholder="City" autocomplete="off">
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <div class="grid-2">
+        <div>
+          <span class="field-label">Prepared by</span>
+          <input type="text" name="repName" value="${escapeAttr(answers.repName)}" placeholder="Sales rep name" autocomplete="off">
+        </div>
+        <div>
+          <span class="field-label">Quote validity</span>
+          <div class="tiles compact" id="validityTiles">
+            ${["7 days","15 days","30 days"].map(v =>
+              tile("validity", v, v, "", answers.validity === v, "compact")
+            ).join("")}
           </div>
         </div>
       </div>
+    </div>`;
+}
 
-      <div class="field">
-        <div class="grid-2">
-          <div>
-            <span class="field-label">Prepared by</span>
-            <input type="text" name="repName" value="${escapeAttr(answers.repName)}" placeholder="Sales rep name" autocomplete="off">
-          </div>
-          <div>
-            <span class="field-label">Quote validity</span>
-            <div class="tiles compact">
-              ${["7 days","15 days","30 days"].map(v =>
-                tile("validity", v, v, "", answers.validity === v, "compact")
-              ).join("")}
-            </div>
-          </div>
-        </div>
-      </div>`;
+/** Redraws every section that reacts to an answer, then the quotation.
+ *  Section 5 is deliberately left alone — see renderDetails. */
+function renderAll(){
+  const active = document.activeElement;
+  const focusName = active && active.name ? active.name : null;
+  const focusValue = active ? active.value : null;
+
+  const d = derive();
+  renderStorage();
+  renderDrives();
+  renderModel(d);
+  renderAddons();
+  renderQuote(d);
+
+  // Re-rendering drops focus, which would strand a keyboard or screen-reader user.
+  if(focusName){
+    const group = [...document.getElementsByName(focusName)];
+    const el = group.find(n => n.value === focusValue) || group[0];
+    if(el && el !== document.activeElement && !el.closest("#secDetails")) el.focus({ preventScroll:true });
   }
-};
-
-/* ================= chrome ================= */
-
-function renderProgress(){
-  const full = STEPS.map((s, i) => {
-    const n = i + 1;
-    const cls = n === ui.step ? "current" : n < ui.step ? "done" : "";
-    const reachable = n <= ui.maxStep;
-    return `<button type="button" class="pstep ${cls}" data-goto="${n}"${reachable ? "" : " disabled"}
-              ${n === ui.step ? 'aria-current="step"' : ""}>
-        <span class="pdot">${n < ui.step ? "✓" : n}</span>
-        <span class="plabel">${s.label}</span>
-      </button>`;
-  }).join("");
-
-  const pct = (ui.step / STEPS.length) * 100;
-  $("progress").innerHTML =
-    `<div class="progress">${full}</div>
-     <div class="progress-compact">
-       <span class="pc-text">Step ${ui.step} / ${STEPS.length}</span>
-       <span class="pc-track"><span class="pc-fill" style="width:${pct}%"></span></span>
-       <span class="pc-text">${STEPS[ui.step-1].label}</span>
-     </div>`;
-}
-
-function renderNav(d){
-  const last = ui.step === STEPS.length;
-  $("backBtn").disabled = ui.step === 1;
-  $("stepCount").textContent = `${ui.step} of ${STEPS.length}`;
-  $("nextLabel").textContent = last ? "Download PDF" : "Next";
-  $("nextBtn").disabled = ui.step === 3 && !d.model;
-}
-
-function goTo(step){
-  ui.step = Math.min(Math.max(step, 1), STEPS.length);
-  ui.maxStep = Math.max(ui.maxStep, ui.step);
-  renderStep();
-  renderQuote();
-  document.querySelector(".stage")?.scrollIntoView({ block:"start", behavior:"smooth" });
 }
 
 /* ================= quotation panel ================= */
 
-/* The panel fills in as the rep works. Until they have actually reached the unit
- * step, nothing has been chosen — showing a priced quote there would put a total
- * in front of the customer that nobody selected, and would let the rep send a PDF
- * for a configuration they never picked. So earlier steps show what is known and
- * leave the money blank. */
-function isPriced(){ return ui.maxStep >= 3; }
-
-function renderQuote(){
-  const d = derive();
+function renderQuote(d = derive()){
   const { calc, model, price } = d;
-  const priced = isPriced();
+  const priced = !!model;
 
   $("quoteRef").textContent = (priced ? "Draft · " : "Not yet priced · ") +
     new Date().toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"});
 
-  const useCaseLabel = {
-    general:"General file sharing & backup", media:"Media / video editing",
-    surveillance:"Surveillance / CCTV", virtualization:"Virtualization & business apps",
-    archival:"Archival / cold backup", database:"Database / trading systems"
-  }[answers.useCase];
-
-  // Each summary row appears once the step that decides it has been completed.
-  const done = ui.maxStep;
-  const summary = [
-    ["Target usable", `${answers.targetTB} TB`, true, done >= 1],
-    ["Use case", useCaseLabel, false, done >= 1],
-    ["RAID", answers.raid, true, done >= 2],
+  $("quoteSummary").innerHTML = [
+    ["Target usable", `${answers.targetTB} TB`, true],
+    ["RAID", answers.raid, true],
     ["Drives", answers.driveBrand
-        ? `${price.totalDrives}× ${answers.driveCap}TB ${answers.driveBrand}`
-        : "—", true, done >= 2],
-    ["Usable delivered", usableLine(calc), true, done >= 2],
-    ["NAS unit", model ? `${model.id}${calc.units > 1 ? ` × ${calc.units}` : ""}` : "—", true, done >= 3]
-  ];
-
-  $("quoteSummary").innerHTML = summary
-    .filter(([,,, show]) => show)
-    .map(([k, v, mono]) =>
-      `<div class="qs-row"><span class="k">${k}</span><span class="v${mono ? " mono" : ""}">${escapeHtml(v)}</span></div>`
-    ).join("") ||
-    `<p class="panel-empty">Answer the first step and the quotation builds here.</p>`;
+        ? `${calc.drivesPerUnit * calc.units}× ${answers.driveCap}TB ${answers.driveBrand}`
+        : "—", true],
+    ["Chassis", `${d.tier}-bay · ${calc.drivesPerUnit} of ${d.tier} bays used`, true],
+    ["Usable delivered", usableLine(calc), true],
+    ["NAS unit", model ? `${model.id}${calc.units > 1 ? ` × ${calc.units}` : ""}` : "Not selected", true],
+    ["Valid for", answers.validity, false]
+  ].map(([k,v,mono]) =>
+    `<div class="qs-row"><span class="k">${k}</span><span class="v${mono ? " mono" : ""}">${escapeHtml(v)}</span></div>`
+  ).join("");
 
   const rows = [
     [`NAS unit${calc.units > 1 ? " × " + calc.units : ""}`, model ? model.id : "—", price.nasQuote, price.nasMin],
     [`Hard drives × ${price.totalDrives}`, `${answers.driveCap}TB ${answers.driveBrand ?? "—"}`, price.hddQuote, price.hddMin]
   ];
   if(answers.includeInstall) rows.push(["Installation & setup", "", price.installQuote, price.installMin]);
-  if(answers.includeRMA)     rows.push(["Extended RMA coverage", "", price.rmaQuote, price.rmaMin]);
+  if(answers.includeAMC)     rows.push(["AMC (annual maintenance)", "", price.amcQuote, price.amcMin]);
 
   $("priceTableBody").innerHTML = priced
     ? rows.map(([label, note, max, min]) =>
@@ -459,15 +420,15 @@ function renderQuote(){
   $("grandMin").textContent = priced ? inr(price.grandMin) : "—";
   $("rtAmount").textContent = priced ? inr(price.grandQuote) : "—";
 
-  const pdfBtn = $("generatePdf");
-  pdfBtn.disabled = !priced || !model;
+  $("generatePdf").disabled = !priced;
   $("quotePanel").classList.toggle("unpriced", !priced);
   $("runningTotal").classList.toggle("unpriced", !priced);
-  if(!priced) statusMsg("Pick a NAS unit in step 3 to price the quote.", "");
-  else if($("pdfStatus").textContent.startsWith("Pick a NAS unit")) statusMsg("", "");
+
+  if(!priced) statusMsg("Choose a NAS unit in section 3 to price the quote.", "");
+  else if($("pdfStatus").textContent.startsWith("Choose a NAS unit")) statusMsg("", "");
 
   ui.lastQuote = !priced ? null : {
-    targetTB: answers.targetTB, useCaseLabel,
+    targetTB: answers.targetTB,
     raid: answers.raid, raidLabel: RAID_INFO[answers.raid].label, speed: answers.speed,
     model, units: calc.units, drivesPerUnit: calc.drivesPerUnit, totalDrives: price.totalDrives,
     driveCap: answers.driveCap, driveBrand: answers.driveBrand,
@@ -484,10 +445,8 @@ function renderQuote(){
 /** RAID minimums mean the delivered capacity often overshoots the target — say so
  *  rather than leaving the rep to explain an unexplained number to the customer. */
 function usableLine(calc){
-  const over = calc.totalUsable - answers.targetTB;
-  if(over <= 0) return `${calc.totalUsable} TB`;
-  const min = RAID_INFO[answers.raid].minDrives;
-  return `${calc.totalUsable} TB (${answers.raid} needs ${min}+ drives)`;
+  if(calc.totalUsable <= answers.targetTB) return `${calc.totalUsable} TB`;
+  return `${calc.totalUsable} TB (${answers.raid} needs ${RAID_INFO[answers.raid].minDrives}+ drives)`;
 }
 
 /* mobile bottom sheet */
@@ -511,7 +470,7 @@ function statusMsg(text, cls){
 function handleGeneratePdf(){
   const q = ui.lastQuote;
   if(!q || !q.model){
-    statusMsg("Reach step 3 and pick a NAS unit first.", "err");
+    statusMsg("Choose a NAS unit in section 3 first.", "err");
     return;
   }
   if(!window.jspdf){
@@ -534,76 +493,88 @@ function handleGeneratePdf(){
 
 /* ================= events ================= */
 
-/** Answers that change which options exist need the step redrawn; the rest only
- *  affect the quotation panel. */
-const REDRAWS_STEP = new Set(["useCase","raid","driveCap","expandable","includeInstall","includeRMA","modelId"]);
-
-function onStepInput(e){
+function onChange(e){
   const el = e.target;
   const name = el.name;
   if(!name) return;
 
-  if(el.type === "checkbox")      answers[name] = el.checked;
-  else if(name === "driveCap")    answers.driveCap = Number(el.value);
-  else if(name === "targetTB")    answers.targetTB = Number(el.value);
-  else                            answers[name] = el.value;
+  if(el.type === "checkbox")   answers[name] = el.checked;
+  else if(name === "driveCap") answers.driveCap = Number(el.value);
+  else                         answers[name] = el.value;
 
-  // Picking a use case re-applies its defaults; the rep can still override both.
-  if(name === "useCase"){
-    answers.raid = USE_CASE_INFO[el.value].raid;
-    answers.speed = USE_CASE_INFO[el.value].speed;
-  }
   // A capacity with a different set of priced drive lines needs a valid line.
   if(name === "driveCap"){
     const brands = validBrandsForCapacity(PRICING.hddPricing, answers.driveCap);
     if(!brands.includes(answers.driveBrand)) answers.driveBrand = brands[0] ?? null;
   }
 
-  if(REDRAWS_STEP.has(name)) renderStep();
-  renderQuote();
+  // Section 5 is never re-rendered — it holds the text fields — so its own tiles
+  // need their highlight moved by hand.
+  if(el.closest("#secDetails")){
+    syncTileSelection(name);
+    renderQuote();
+  } else {
+    renderAll();
+  }
+}
+
+/** Moves the selected highlight within a radio group without re-rendering it.
+ *  Looks inputs up by property rather than by attribute selector: model ids come
+ *  from the price sheet and can hold characters that break a selector. */
+function syncTileSelection(name){
+  [...document.getElementsByName(name)].forEach(input => {
+    const tile = input.closest(".tile, .model-card, .addon-row");
+    if(!tile) return;
+    tile.classList.toggle(tile.classList.contains("addon-row") ? "on" : "selected", input.checked);
+  });
 }
 
 function bindEvents(){
-  const body = $("stepBody");
+  const main = document.querySelector(".sections");
 
-  body.addEventListener("change", onStepInput);
+  main.addEventListener("change", onChange);
 
-  // live feedback while dragging the slider and while typing
-  body.addEventListener("input", e => {
-    if(e.target.id === "storageRange"){
-      answers.targetTB = Number(e.target.value);
-      const v = body.querySelector(".storage-value");
-      if(v) v.innerHTML = `${answers.targetTB}<small>TB</small>`;
-      body.querySelectorAll("[data-preset]").forEach(c =>
-        c.classList.toggle("on", Number(c.dataset.preset) === answers.targetTB));
+  main.addEventListener("input", e => {
+    const el = e.target;
+
+    if(el.id === "storageRange"){
+      answers.targetTB = Number(el.value);
+      syncStorage({ except: "storageRange" });
+      renderModel(derive());
       renderQuote();
-    } else if(e.target.type === "text"){
-      answers[e.target.name] = e.target.value;
+
+    } else if(el.id === "storageInput"){
+      // Redrawing the field mid-keystroke would move the caret, so only the
+      // slider and the presets follow along until the value is committed.
+      const typed = Number(el.value);
+      if(Number.isFinite(typed) && typed >= STORAGE_MIN && typed <= STORAGE_MAX){
+        answers.targetTB = typed;
+        syncStorage({ except: "storageInput" });
+        renderModel(derive());
+        renderQuote();
+      }
+
+    } else if(el.type === "text"){
+      answers[el.name] = el.value;
       renderQuote();
     }
   });
 
-  body.addEventListener("click", e => {
+  // Committing either storage control redraws the sections that depend on it.
+  main.addEventListener("change", e => {
+    if(e.target.id === "storageRange"){
+      renderAll();
+    } else if(e.target.id === "storageInput"){
+      answers.targetTB = clampTB(Number(e.target.value));   // out-of-range or empty
+      renderAll();
+    }
+  });
+
+  main.addEventListener("click", e => {
     const chip = e.target.closest("[data-preset]");
     if(chip){
-      answers.targetTB = Number(chip.dataset.preset);
-      renderStep();
-      renderQuote();
-    }
-  });
-
-  $("progress").addEventListener("click", e => {
-    const btn = e.target.closest("[data-goto]");
-    if(btn && !btn.disabled) goTo(Number(btn.dataset.goto));
-  });
-
-  $("backBtn").addEventListener("click", () => goTo(ui.step - 1));
-  $("nextBtn").addEventListener("click", () => {
-    if(ui.step === STEPS.length){
-      handleGeneratePdf();
-      if(window.matchMedia("(max-width: 900px)").matches) openQuote();
-    } else {
-      goTo(ui.step + 1);
+      answers.targetTB = clampTB(Number(chip.dataset.preset));
+      renderAll();
     }
   });
 
@@ -612,10 +583,18 @@ function bindEvents(){
   $("openQuote").addEventListener("click", openQuote);
   $("closeQuote").addEventListener("click", closeQuote);
   $("scrim").addEventListener("click", closeQuote);
+  document.addEventListener("keydown", e => { if(e.key === "Escape") closeQuote(); });
+}
 
-  document.addEventListener("keydown", e => {
-    if(e.key === "Escape") closeQuote();
-  });
+/** Keeps the number field, the slider and the preset chips showing the same
+ *  figure without re-rendering the control the rep is currently using. */
+function syncStorage({ except } = {}){
+  const input = $("storageInput");
+  const range = $("storageRange");
+  if(input && except !== "storageInput") input.value = String(answers.targetTB);
+  if(range && except !== "storageRange") range.value = String(answers.targetTB);
+  $("secStorage").querySelectorAll("[data-preset]").forEach(c =>
+    c.classList.toggle("on", Number(c.dataset.preset) === answers.targetTB));
 }
 
 /* ================= helpers ================= */
@@ -629,12 +608,9 @@ function escapeAttr(s){ return escapeHtml(s); }
 
 async function init(){
   applyPricing(await loadPricing());
-  answers.raid = USE_CASE_INFO[answers.useCase].raid;
-  answers.speed = USE_CASE_INFO[answers.useCase].speed;
-
   bindEvents();
-  renderStep();
-  renderQuote();
+  renderDetails();
+  renderAll();
   startAutoRefresh();
 }
 

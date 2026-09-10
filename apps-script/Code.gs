@@ -48,7 +48,7 @@ var RAID_ALL = ['RAID0', 'RAID1', 'RAID5', 'RAID6', 'RAID10'];
 var RAID_2BAY = ['RAID0', 'RAID1'];
 
 var DEFAULT_INSTALL = { quote: 5900, min: 4130 };
-var DEFAULT_RMA = { quote: 0.10, min: 0.07 };
+var DEFAULT_AMC = { quote: 0.10, min: 0.07 };
 
 /* ============================ entry point ============================ */
 
@@ -91,7 +91,7 @@ function buildPricing(debug) {
     capacities: hdd.capacities,
     hddPricing: hdd.pricing,
     install: rates.install,
-    rmaRate: rates.rmaRate,
+    amcRate: rates.amcRate,
     warnings: warnings
   };
   if (debug) out.debug = { rows: grid.length, cols: grid[0] ? grid[0].length : 0 };
@@ -224,23 +224,25 @@ function readHdd(grid, warnings) {
   return { capacities: capacities, pricing: pricing };
 }
 
-/* ============================ install / RMA ============================
+/* ============================ install / AMC ============================
 
    Looked up as labelled rows anywhere on the tab: the first numeric cell on an
-   "installation" row is the quote price and the next one the minimum; an "RMA"
-   row is read the same way, with percentages normalised to fractions.
+   "installation" row is the quote price and the next one the minimum; the AMC
+   (annual maintenance cost) row is read the same way, with percentages
+   normalised to fractions. "RMA" and "warranty" are still matched because the
+   sheet used those words before the line was renamed.
 */
 
 function readRates(grid, warnings) {
   var install = findLabelledPair(grid, ['installation', 'install', 'setup']);
-  var rma = findLabelledPair(grid, ['rma', 'warranty', 'extended warranty']);
+  var amc = findLabelledPair(grid, ['amc', 'annual maintenance', 'maintenance', 'rma', 'warranty']);
 
   if (!install) warnings.push('No installation row found — using default ' + DEFAULT_INSTALL.quote + '/' + DEFAULT_INSTALL.min + '.');
-  if (!rma) warnings.push('No RMA row found — using default 10%/7%.');
+  if (!amc) warnings.push('No AMC row found — using default 10%/7%.');
 
   return {
     install: install ? { quote: install[0], min: install[1] } : DEFAULT_INSTALL,
-    rmaRate: rma ? { quote: asFraction(rma[0]), min: asFraction(rma[1]) } : DEFAULT_RMA
+    amcRate: amc ? { quote: asFraction(amc[0]), min: asFraction(amc[1]) } : DEFAULT_AMC
   };
 }
 
@@ -311,7 +313,7 @@ function looksLikeHeader(s) {
 }
 
 function isRateWord(s) {
-  return matchesAny(s, ['installation', 'install', 'rma', 'warranty', 'total', 'gst', 'tax %']);
+  return matchesAny(s, ['installation', 'install', 'amc', 'annual maintenance', 'rma', 'warranty', 'total', 'gst', 'tax %']);
 }
 
 /* ============================ cell helpers ============================ */

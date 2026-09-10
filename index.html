@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>NAS Configurator</title>
+<title>DigiBuggy — NAS Configurator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -24,31 +24,65 @@
   </header>
 
   <div class="layout">
-    <main class="wizard">
+    <main class="sections">
 
-      <!-- progress rail -->
-      <nav id="progress" aria-label="Configuration steps"></nav>
-
-      <!-- one step at a time -->
-      <section class="stage card" aria-live="polite">
-        <div id="stepBody"></div>
+      <section class="card">
+        <div class="sec-head">
+          <span class="sec-num">1</span>
+          <div>
+            <h2>Storage need</h2>
+            <p>How much usable capacity the customer needs — type it or drag the slider.</p>
+          </div>
+        </div>
+        <div id="secStorage"></div>
       </section>
 
-      <!-- step navigation -->
-      <div class="step-nav">
-        <button type="button" class="btn-ghost" id="backBtn">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-          Back
-        </button>
-        <span class="step-count mono" id="stepCount"></span>
-        <button type="button" class="btn-primary btn-next" id="nextBtn">
-          <span id="nextLabel">Next</span>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
-        </button>
-      </div>
+      <section class="card">
+        <div class="sec-head">
+          <span class="sec-num">2</span>
+          <div>
+            <h2>Chassis, RAID &amp; drives</h2>
+            <p>Together these decide the drive count and how many units the quote needs.</p>
+          </div>
+        </div>
+        <div id="secDrives"></div>
+      </section>
+
+      <section class="card">
+        <div class="sec-head">
+          <span class="sec-num">3</span>
+          <div>
+            <h2>NAS unit</h2>
+            <p>Units in the price sheet that fit the bay count and RAID level above, cheapest first.</p>
+          </div>
+        </div>
+        <div id="secModel"></div>
+      </section>
+
+      <section class="card">
+        <div class="sec-head">
+          <span class="sec-num">4</span>
+          <div>
+            <h2>Add-ons</h2>
+            <p>Both optional, priced from the sheet.</p>
+          </div>
+        </div>
+        <div id="secAddons"></div>
+      </section>
+
+      <section class="card">
+        <div class="sec-head">
+          <span class="sec-num">5</span>
+          <div>
+            <h2>Quotation details</h2>
+            <p>These appear on the PDF header.</p>
+          </div>
+        </div>
+        <div id="secDetails"></div>
+      </section>
+
     </main>
 
-    <!-- live quotation -->
     <aside class="quote-panel" id="quotePanel" aria-label="Live quotation">
       <div class="quote-card">
         <div class="quote-head">
@@ -82,11 +116,11 @@
         <div class="totals">
           <div class="totals-row">
             <span class="label">Total (Max · quote price)</span>
-            <span class="amount mono" id="grandMax">₹0</span>
+            <span class="amount mono" id="grandMax">—</span>
           </div>
           <div class="totals-row min">
             <span class="label">Total (Min · with tax)</span>
-            <span class="amount mono" id="grandMin">₹0</span>
+            <span class="amount mono" id="grandMin">—</span>
           </div>
         </div>
 
@@ -106,11 +140,9 @@
 <div class="running-total" id="runningTotal">
   <div class="rt-copy">
     <span class="rt-label">Running total</span>
-    <span class="rt-amount mono" id="rtAmount">₹0</span>
+    <span class="rt-amount mono" id="rtAmount">—</span>
   </div>
-  <button type="button" class="btn-quote" id="openQuote">
-    View quote
-  </button>
+  <button type="button" class="btn-quote" id="openQuote">View quote</button>
 </div>
 <div class="scrim" id="scrim" hidden></div>
 

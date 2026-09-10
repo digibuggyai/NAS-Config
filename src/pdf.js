@@ -41,8 +41,8 @@ export function buildPdf(q){
 
   const summaryLines = [
     "Target usable storage: " + q.targetTB + " TB",
-    "Use case: " + q.useCaseLabel,
     "RAID level: " + q.raid + " — " + q.raidLabel,
+    "Chassis: " + (q.model ? `${q.model.bays}-bay, ${q.drivesPerUnit} bays used` : "—"),
     "Network requirement: " + q.speed,
     "Recommended unit: " + (q.model
       ? `${q.model.id} (${q.model.brand}, ${q.model.bays}-bay)` + (q.units > 1 ? ` × ${q.units} units` : "")

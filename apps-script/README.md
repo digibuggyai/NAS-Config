@@ -47,7 +47,7 @@ can be moved, and drive lines or NAS models can be added, without touching code:
 - **Drives** — the first row carrying a "capacity"-ish header. Every other non-empty
   header on that row is treated as a drive line, paired with the column to its right
   when that one reads "minimum"/"with tax". A blank price cell means "not priced".
-- **Installation / RMA** — found as labelled rows anywhere on the tab; the first two
+- **Installation / AMC** — found as labelled rows anywhere on the tab; the first two
   numbers to the right of the label are the Max and Min. Percentages are normalised
   (`10%` → `0.10`).
 

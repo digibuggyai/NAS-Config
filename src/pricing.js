@@ -50,7 +50,7 @@ export const FALLBACK = {
     16: { "Exos":{quote:82000, min:78470}, "WD Ultrastar":{quote:82000, min:77880} }
   },
   install: { quote:5900, min:4130 },
-  rmaRate: { quote:0.10, min:0.07 }
+  amcRate: { quote:0.10, min:0.07 }
 };
 
 const PRICING_URL = new URL("../data/pricing.json", import.meta.url);
@@ -191,7 +191,9 @@ export function normalise(raw){
     hddPricing: capacities.length ? hddPricing : FALLBACK.hddPricing,
     capacities: capacities.length ? capacities : FALLBACK.capacities,
     install: numberPair(d.install, FALLBACK.install),
-    rmaRate: numberPair(d.rmaRate, FALLBACK.rmaRate),
+    // `rmaRate` is what this field was called before it was renamed to AMC;
+    // still accepted so an older sheet export keeps working.
+    amcRate: numberPair(d.amcRate ?? d.rmaRate, FALLBACK.amcRate),
     updatedAt: d.updatedAt || null
   };
 }
@@ -208,7 +210,7 @@ export function validate(data){
   if(!data.models.length) return "no usable models";
   if(!data.capacities.length) return "no drive capacities priced";
   if(!Number.isFinite(data.install.quote)) return "installation price missing";
-  if(!(data.rmaRate.quote >= 0 && data.rmaRate.quote < 1)) return "RMA rate out of range";
+  if(!(data.amcRate.quote >= 0 && data.amcRate.quote < 1)) return "AMC rate out of range";
   return null;
 }
 

@@ -87,21 +87,26 @@ test("a new drive line in the sheet needs no code change", () => {
   assert.equal(pricing["16"]["Some New Line"].quote, 79000);
 });
 
-test("picks up installation and RMA rows anywhere on the tab", () => {
+test("picks up installation and AMC rows anywhere on the tab", () => {
   const rates = plain(gs.readRates([
     ["", "", ""],
     ["Installation", 5900, 4130],
-    ["Extended RMA", "10%", "7%"]
+    ["AMC", "10%", "7%"]
   ], []));
   assert.deepEqual(rates.install, { quote:5900, min:4130 });
-  assert.deepEqual(rates.rmaRate, { quote:0.10, min:0.07 });
+  assert.deepEqual(rates.amcRate, { quote:0.10, min:0.07 });
+});
+
+test("a sheet still labelling the row RMA is still read", () => {
+  const rates = plain(gs.readRates([["Extended RMA", "12%", "9%"]], []));
+  assert.deepEqual(rates.amcRate, { quote:0.12, min:0.09 });
 });
 
 test("falls back to defaults and warns when the rate rows are missing", () => {
   const warnings = [];
   const rates = plain(gs.readRates([["Model", "Quote Price"]], warnings));
   assert.deepEqual(rates.install, { quote:5900, min:4130 });
-  assert.deepEqual(rates.rmaRate, { quote:0.10, min:0.07 });
+  assert.deepEqual(rates.amcRate, { quote:0.10, min:0.07 });
   assert.equal(warnings.length, 2);
 });
 

@@ -4,8 +4,8 @@ Internal sales tool for DigiBuggy (DGB India). A salesperson runs it live with a
 customer: answer a few questions about storage needs, get a recommended NAS unit
 plus drives, and download a PDF quotation.
 
-Standalone port of the original single-file Claude Artifact prototype: a guided
-five-step wizard with a live quotation alongside it. No build step.
+Standalone port of the original single-file Claude Artifact prototype: a single
+configuration page with a live quotation alongside it. No build step.
 
 ## Running it
 
@@ -22,7 +22,7 @@ ES-module loading from `file://` — so use a server.
 ```bash
 npm install        # jsdom, for the render tests only
 npm test           # RAID maths, price-list handling, sheet parser, and a full
-                   # jsdom walk through the five wizard steps
+                   # jsdom pass over the configuration page
 ```
 
 ## Layout
@@ -36,7 +36,7 @@ src/config.js            the sheet endpoint URL and cache settings
 src/pricing.js           fetch / cache / validate the price list
 src/logic.js             RAID sizing, model filtering, quote maths (pure, tested)
 src/pdf.js               jsPDF quotation layout
-src/app.js               wizard state, step rendering, quotation panel
+src/app.js               answer state, section rendering, quotation panel
 src/styles.css           design tokens + all styling
 data/pricing.json        offline copy of the price list
 test/                    unit tests
@@ -67,9 +67,9 @@ Once the endpoint is set there is nothing to maintain by hand:
 | Change a price | quoted on the next load or background refresh |
 | Add a model row | appears in the model list, filtered by its bay tier and RAID |
 | Remove a model row | disappears |
-| Add a drive line column | appears in the "Drive line" dropdown at that capacity |
-| Add a capacity row | appears in the "Drive capacity" dropdown |
-| Change the installation or RMA rate | flows into the add-on lines and totals |
+| Add a drive line column | appears in the "Drive line" choices at that capacity |
+| Add a capacity row | appears in the "Drive capacity" choices |
+| Change the installation or AMC rate | flows into the add-on lines and totals |
 
 The page fetches on load, again every 10 minutes while it's open
 (`AUTO_REFRESH_MS` in `src/config.js`), when the rep returns to a tab that has been
@@ -110,34 +110,41 @@ falls through to the previous source instead.
 They only matter when the sheet is unreachable; refresh them occasionally if you
 care about the offline path being accurate.
 
-## The flow
+## The page
 
-Five steps, one decision at a time, with the running total always visible:
+Five sections on one scrolling page, with the quotation beside them:
 
-1. **Storage** — usable TB (slider + presets) and the use case, which pre-fills the
-   RAID level and network speed.
-2. **Drives** — RAID level, drive capacity, drive line, network speed, expandability.
-3. **Unit** — the matching NAS units, cheapest first.
-4. **Add-ons** — installation and extended RMA.
-5. **Details** — customer, location, rep, validity. Next becomes *Download PDF*.
+1. **Storage need** — usable TB, typed directly or set with the slider/presets
+   (2–200 TB; a typed figure outside that range is clamped when committed).
+2. **Chassis, RAID & drives** — chassis size, RAID level, drive capacity, drive
+   line, network speed, expandability.
+3. **NAS unit** — the units matching the bay tier and RAID level, cheapest first.
+4. **Add-ons** — installation and AMC (annual maintenance cost).
+5. **Quotation details** — customer, location, rep, validity.
 
-The progress rail navigates back to any visited step. On a laptop the quotation sits
-in a sticky sidebar; on a phone or tablet it collapses to a pinned running total that
-opens the full quotation as a bottom sheet. All answers are held in one state object
-and every screen is drawn from it, so going back never loses an answer.
+Nothing is auto-selected in section 3, and the quotation stays unpriced — totals
+blank, PDF disabled — until the rep picks a unit. Everything else updates live as
+answers change, so the sections can be filled in any order. All answers live in one
+state object and each section renders from it.
+
+On a laptop the quotation sits in a sticky sidebar; on a phone or tablet it
+collapses to a pinned running total that opens the full quotation as a bottom sheet.
 
 ## How the recommendation works
 
 1. **Usable capacity per RAID level** — RAID 0 `n×size`, RAID 1 `size` (2 drives),
    RAID 5 `(n−1)×size`, RAID 6 `(n−2)×size`, RAID 10 `(n/2)×size`.
-2. **Drive count** is the smallest `n` that reaches the target within an 8-bay
-   chassis (RAID 10 steps in pairs). That `n` rounds up to a bay tier of 2/4/6/8.
-3. If even 8 bays at the chosen drive size can't reach the target, the quote scales
-   to multiple whole units and the UI shows a warning banner.
+2. **Drive count** is the smallest `n` that reaches the target within the chassis
+   (RAID 10 steps in pairs). On **Auto** the chassis is the smallest tier that fits,
+   so `n` rounds up to 2/4/6/8; choosing a size explicitly caps the bays per unit.
+3. If the chassis can't reach the target at the chosen drive size, the quote scales
+   to multiple whole units and the UI shows a warning banner. Picking a small
+   chassis for a large target is a legitimate way to get there — three 2-bay boxes
+   rather than one 8-bay — so the section says which it produced.
 4. **Models** are filtered to that bay tier and RAID level, cheapest first. Ticking
    "room to expand later" floats expandable units to the top.
-5. **Total** = `(NAS × units) + (drive × drives-per-unit × units) + installation + RMA%`,
-   matching the price sheet's own example calculator. RMA is a percentage of the
+5. **Total** = `(NAS × units) + (drive × drives-per-unit × units) + installation + AMC%`,
+   matching the price sheet's own example calculator. AMC is a percentage of the
    hardware subtotal only — installation is not marked up.
 
 Every column shows two prices: **Max** (the sheet's list "Quote Price") and
@@ -148,8 +155,8 @@ Every column shows two prices: **Max** (the sheet's list "Quote Price") and
 Carried over from the prototype — these are unresolved data questions, not bugs:
 
 - The sheet's **PreBuilds** and **Reference** tabs were never read. They may define
-  exact use-case → model rules that should replace the heuristic defaults in
-  `USE_CASE_INFO` (`src/logic.js`).
+  ready-made configurations that should be offered directly rather than assembled
+  from the sizing rules below.
 - No SSD pricing exists in the sheet yet — HDD only.
 - **Network speed** is captured as a customer requirement printed on the quote. It is
   not matched against real per-model NIC specs; those weren't in the sheet.

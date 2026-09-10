@@ -21,7 +21,7 @@ Not a block per category. A single flat table, with the category as a column:
 | RAM | 8GB DDR4 SODIMM | Crucial | | | | | | 4500 | 4200 | per unit | Yes |
 | NIC | 10GbE PCIe card | QNAP | QXG-10G1T | | | | | 14000 | 13200 | per unit | No |
 | SERVICE | On-site installation | | Racking, RAID, network | | | | | 5900 | 4130 | per unit | Yes |
-| SERVICE | Extended RMA | | % of hardware subtotal | | | | | 10% | 7% | percent of hardware | Yes |
+| SERVICE | AMC (annual maintenance) | | % of hardware subtotal | | | | | 10% | 7% | percent of hardware | Yes |
 
 Why this shape:
 

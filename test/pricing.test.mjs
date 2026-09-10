@@ -13,7 +13,7 @@ const sheetish = {
     "16": { "Exos": { quote:82000, min:78470 } }
   },
   install: { quote:"5900", min:"4130" },
-  rmaRate: { quote:0.10, min:0.07 }
+  amcRate: { quote:0.10, min:0.07 }
 };
 
 test("coerces the sheet's strings into numbers", () => {
@@ -67,7 +67,14 @@ test("min defaults to the quote price when the sheet leaves it blank", () => {
   assert.equal(d.install.min, 5900);
 });
 
-test("validate rejects a nonsense RMA rate", () => {
+test("validate rejects a nonsense AMC rate", () => {
   const d = normalise(sheetish);
-  assert.equal(validate({ ...d, rmaRate: { quote: 10, min: 7 } }), "RMA rate out of range");
+  assert.equal(validate({ ...d, amcRate: { quote: 10, min: 7 } }), "AMC rate out of range");
+});
+
+test("a sheet export still using the old rmaRate key is accepted", () => {
+  const { amcRate, ...withoutAmc } = sheetish;
+  const d = normalise({ ...withoutAmc, rmaRate: { quote: 0.12, min: 0.09 } });
+  assert.deepEqual(d.amcRate, { quote: 0.12, min: 0.09 });
+  assert.equal(validate(d), null);
 });
