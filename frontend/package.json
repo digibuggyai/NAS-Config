@@ -5,6 +5,8 @@
   "type": "module",
   "description": "The configurator page and the admin UI \u2014 plain HTML/CSS/ES modules, no build step.",
   "scripts": {
+    "start": "node ../backend/index.js",
+    "dev:static": "npx --yes serve@14 . -l 5173",
     "test": "node --test test/"
   }
 }

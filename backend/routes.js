@@ -79,10 +79,10 @@ router.post("/products", requireRole("admin"), wrap(async (req, res) => {
 
   const { lastId } = await db().run(
     `INSERT INTO products (sku, category, name, brand, spec, bays, capacity_tb, raid,
-                           expandable, unit, active, sort_order, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                           expandable, network, network_upgrade, unit, active, sort_order, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [fields.sku, fields.category, fields.name, fields.brand, fields.spec, fields.bays,
-     fields.capacityTb, JSON.stringify(fields.raid), fields.expandable ? 1 : 0,
+     fields.capacityTb, JSON.stringify(fields.raid), fields.expandable ? 1 : 0, fields.network, fields.networkUpgrade,
      fields.unit, fields.active ? 1 : 0, fields.sortOrder, nowIso(), nowIso()]
   );
 
@@ -107,10 +107,10 @@ router.patch("/products/:id", requireRole("admin"), wrap(async (req, res) => {
 
   await db().run(
     `UPDATE products SET sku=?, category=?, name=?, brand=?, spec=?, bays=?, capacity_tb=?,
-            raid=?, expandable=?, unit=?, active=?, sort_order=?, updated_at=?
+            raid=?, expandable=?, network=?, network_upgrade=?, unit=?, active=?, sort_order=?, updated_at=?
       WHERE id=?`,
     [fields.sku, fields.category, fields.name, fields.brand, fields.spec, fields.bays,
-     fields.capacityTb, JSON.stringify(fields.raid), fields.expandable ? 1 : 0,
+     fields.capacityTb, JSON.stringify(fields.raid), fields.expandable ? 1 : 0, fields.network, fields.networkUpgrade,
      fields.unit, fields.active ? 1 : 0, fields.sortOrder, nowIso(), id]
   );
 
@@ -345,6 +345,8 @@ function validateProduct(body = {}){
     spec: String(body.spec ?? "").trim(),
     raid: Array.isArray(body.raid) ? body.raid : [],
     expandable: !!body.expandable,
+    network: String(body.network ?? "").trim(),
+    networkUpgrade: String(body.networkUpgrade ?? "").trim(),
     active: body.active == null ? true : !!body.active,
     sortOrder: Number(body.sortOrder) || 0,
     price: body.price || null

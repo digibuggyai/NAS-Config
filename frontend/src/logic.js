@@ -122,3 +122,213 @@ export function priceQuote({ model, calc, drivePrice, install, amcRate, includeI
     grandMin:   hwMin   + installMin   + amcMin
   };
 }
+
+/* ============================================================
+   Buildability and automatic suggestion
+   ============================================================ */
+
+/* Drives are sold in whole terabytes and arrays are built from whole drives, so
+   a target is expressed on a 2 TB grid. 157 TB is not a thing anyone can build. */
+export const STORAGE_STEP = 2;
+export const STORAGE_MIN = 2;
+export const STORAGE_MAX = 200;
+
+/** Why this target can't be built, or null when it can.
+ *  `capacities` are the drive sizes actually priced. */
+export function buildabilityError(targetTB, { raid, capacities = [], maxUnits = MAX_UNITS } = {}){
+  if(!Number.isFinite(targetTB)) return "Enter the storage the customer needs.";
+  if(targetTB % STORAGE_STEP !== 0){
+    const near = Math.round(targetTB / STORAGE_STEP) * STORAGE_STEP;
+    return `${targetTB} TB can't be built — storage goes in ${STORAGE_STEP} TB steps. Try ${near} TB.`;
+  }
+  if(targetTB < STORAGE_MIN) return `The smallest system is ${STORAGE_MIN} TB.`;
+  if(targetTB > STORAGE_MAX) return `${targetTB} TB is past what this tool sizes (${STORAGE_MAX} TB).`;
+
+  if(raid && capacities.length){
+    const biggest = Math.max(...capacities);
+    const perUnit = usableForN(raid, raid === "RAID1" ? 2 : MAX_BAYS, biggest);
+    if(perUnit * maxUnits < targetTB){
+      return `${targetTB} TB can't be built at ${raid}: even ${maxUnits} units of ` +
+             `${MAX_BAYS} × ${biggest} TB reach only ${perUnit * maxUnits} TB.`;
+    }
+  }
+  return null;
+}
+
+/** How many chassis the tool is willing to gang together before calling it
+ *  unbuildable. Beyond this it stops being a desktop NAS proposal. */
+export const MAX_UNITS = 4;
+
+/**
+ * Every way of hitting the target, cheapest first.
+ *
+ * A build is a whole proposal — drive size, drive line, how many drives, which
+ * chassis and how many of them — because those choices are not independent:
+ * bigger drives need fewer bays, which allows a cheaper chassis, which can beat
+ * the cheaper drives outright.
+ *
+ * A model qualifies when it has AT LEAST the bays the array needs, so a 6-bay
+ * unit is a legitimate home for a 4-drive array — with expansion room, which is
+ * exactly what a customer who ticked "room to expand" is paying for.
+ */
+export function suggestBuilds({
+  targetTB, raid, models, hddPricing, capacities,
+  brand = "any", bays = null, expandableOnly = false, maxUnits = MAX_UNITS
+}){
+  const builds = [];
+
+  for(const model of models){
+    if(!model.raid.includes(raid)) continue;
+    if(brand !== "any" && model.brand.toLowerCase() !== brand.toLowerCase()) continue;
+    if(bays != null && model.bays !== Number(bays)) continue;
+    if(expandableOnly && !model.expandable) continue;
+
+    for(const cap of capacities){
+      const lines = hddPricing[cap] || {};
+      for(const line of Object.keys(lines)){
+        const drive = lines[line];
+        const calc = computeDrives(raid, cap, targetTB, model.bays);
+        if(calc.units > maxUnits) continue;
+
+        const drives = calc.drivesPerUnit * calc.units;
+        builds.push({
+          model, driveCap: cap, driveLine: line,
+          drivesPerUnit: calc.drivesPerUnit, units: calc.units,
+          bayNeed: calc.bayNeed, calc,
+          totalUsable: calc.totalUsable,
+          spareBays: (model.bays - calc.drivesPerUnit) * calc.units,
+          totalQuote: model.quote * calc.units + drive.quote * drives,
+          totalMin: model.minTax * calc.units + drive.min * drives
+        });
+      }
+    }
+  }
+
+  // Cheapest first; then fewer boxes; then less over-delivery, so two builds at
+  // the same price don't sell the customer capacity they didn't ask for.
+  builds.sort((a, b) =>
+    a.totalQuote - b.totalQuote ||
+    a.units - b.units ||
+    a.totalUsable - b.totalUsable
+  );
+  return builds;
+}
+
+/** The cheapest build per model, so the list offers real alternatives rather
+ *  than the same unit five times with different drives. */
+export function bestBuildPerModel(builds){
+  const seen = new Map();
+  for(const b of builds){
+    if(!seen.has(b.model.id)) seen.set(b.model.id, b);
+  }
+  return [...seen.values()];
+}
+
+/* ============================================================
+   Network speed
+   ============================================================ */
+
+/** The highest speed named in a ports string, in Gb/s. "2.5GbE ×1 + 1GbE ×1"
+ *  is a 2.5 Gb link at best, whatever else is in the box. */
+export function topSpeed(spec){
+  const hits = String(spec || "").match(/(\d+(?:\.\d+)?)\s*GbE/gi);
+  if(!hits) return 0;
+  return Math.max(...hits.map(h => parseFloat(h)));
+}
+
+/** What the chosen unit can actually do on the network.
+ *  `builtIn` is what ships in the box and is what gets quoted; `upgrade` needs a
+ *  card that isn't in this price list, so it is reported as a note only. */
+export function networkFor(model){
+  if(!model) return null;
+  const builtIn = (model.network || "").trim();
+  const upgrade = (model.networkUpgrade || "").trim();
+  if(!builtIn && !upgrade) return null;
+  return {
+    builtIn: builtIn || null,
+    upgrade: upgrade || null,
+    topGb: topSpeed(builtIn),
+    /** The speed tile to preselect: the fastest link the unit has out of the box. */
+    quotable: builtIn ? labelForSpeed(topSpeed(builtIn)) : null
+  };
+}
+
+/** Rounds a raw Gb figure onto the speeds a quotation talks in. */
+export function labelForSpeed(gb){
+  if(gb >= 10) return "10GbE";
+  if(gb >= 2.5) return "2.5GbE";
+  if(gb >= 1) return "1GbE";
+  return null;
+}
+
+/** The best network the current shortlist could reach, so a rep can see that a
+ *  faster link is on the table before they settle on a unit. */
+export function bestNetworkAmong(builds){
+  let best = null;
+  for(const b of builds){
+    const net = networkFor(b.model);
+    if(net && (!best || net.topGb > best.topGb)) best = { ...net, model: b.model };
+  }
+  return best;
+}
+
+/**
+ * The usable capacities that can actually be built, exactly, with the drives and
+ * chassis on the price list — no rounding up, no over-delivery.
+ *
+ * A NAS delivers whole drives at a RAID level, so usable capacity lands on a set
+ * of discrete values (RAID 5 with 10 TB drives gives 20, 30, 40 … ; with 8 TB it
+ * gives 16, 24, 32 …). Offering those directly beats letting someone type a
+ * figure that no combination produces.
+ */
+export function buildableSizes({
+  raid, models, capacities, hddPricing,
+  brand = "any", bays = null, expandableOnly = false,
+  maxUnits = MAX_UNITS, max = STORAGE_MAX, min = STORAGE_MIN
+}){
+  const info = RAID_INFO[raid];
+  if(!info) return [];
+
+  const sizes = new Set();
+
+  for(const model of models){
+    if(!model.raid.includes(raid)) continue;
+    if(brand !== "any" && model.brand.toLowerCase() !== brand.toLowerCase()) continue;
+    if(bays != null && model.bays !== Number(bays)) continue;
+    if(expandableOnly && !model.expandable) continue;
+
+    for(const cap of capacities){
+      if(!Object.keys(hddPricing?.[cap] || {}).length) continue;   // not priced, not offerable
+
+      // RAID 1 is always a single mirrored pair, whatever the chassis holds.
+      const counts = raid === "RAID1"
+        ? [2]
+        : range(info.minDrives, model.bays, info.step);
+
+      for(const n of counts){
+        const perUnit = usableForN(raid, n, cap);
+        for(let units = 1; units <= maxUnits; units++){
+          const total = perUnit * units;
+          if(total >= min && total <= max && Number.isInteger(total)) sizes.add(total);
+        }
+      }
+    }
+  }
+  return [...sizes].sort((a, b) => a - b);
+}
+
+function range(from, to, step){
+  const out = [];
+  for(let n = from; n <= to; n += step) out.push(n);
+  return out;
+}
+
+/** The offered size closest to what was asked for, preferring not to under-deliver. */
+export function nearestBuildable(targetTB, sizes){
+  if(!sizes.length) return null;
+  const atOrAbove = sizes.find(s => s >= targetTB);
+  if(atOrAbove == null) return sizes[sizes.length - 1];
+  const below = [...sizes].reverse().find(s => s < targetTB);
+  if(below == null) return atOrAbove;
+  return (atOrAbove - targetTB) <= (targetTB - below) ? atOrAbove : below;
+}

@@ -9,17 +9,37 @@ pricing database an admin maintains. No build step on the front end.
 
 ## Running it
 
+**There is one command, and it runs everything.** The front end has no server of
+its own — it is static files that the backend serves, so starting the backend
+starts the whole thing:
+
 ```bash
 npm install
 npm run seed          # catalogue + opening prices, safe to re-run
 npm start             # http://localhost:3000
 ```
 
+Then open **http://localhost:3000** — that *is* the front end.
+
 | URL | What |
 |---|---|
-| `/` | the configurator a rep runs with a customer |
-| `/admin/` | pricing admin — products, prices, quotations, users |
-| `/api/pricing` | the price list the configurator reads |
+| `http://localhost:3000/` | the configurator a rep runs with a customer |
+| `http://localhost:3000/admin/` | pricing admin — products, prices, quotations, users |
+| `http://localhost:3000/api/pricing` | the price list the configurator reads |
+
+`npm start` does the same thing from the repo root, from `frontend/` or from
+`backend/` — all three run the one server.
+
+Two things that will not work, and what they look like:
+
+- **Opening `frontend/index.html` from the file manager** (a `file://` URL). The
+  browser blocks ES modules from `file://`, so you get a blank page. Use the
+  server.
+- **Serving `frontend/` on its own** with Live Server, `serve`, or similar. The
+  page loads, but there is no `/api/pricing` behind it, so it quietly falls back
+  to the offline copy in `frontend/data/pricing.json` and the panel says so. Fine
+  for styling work — `npm run dev:static` inside `frontend/` does exactly this on
+  port 5173 — but the admin and saved quotes need the real server.
 
 To create the first admin account, give the seed one:
 

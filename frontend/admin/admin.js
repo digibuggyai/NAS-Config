@@ -6,7 +6,11 @@
 
 const $ = id => document.getElementById(id);
 
-const state = { user: null, products: [], quotes: [], users: [], gstRate: 0.18, editing: null };
+const state = {
+  user: null, products: [], quotes: [], users: [], gstRate: 0.18, editing: null,
+  filterCategory: "",     // "" = all
+  filterLine: ""          // brand for NAS, drive line for HDD/SSD
+};
 
 const CATEGORIES = ["NAS","HDD","SSD","RAM","NIC","EXPANSION","SERVICE","ACCESSORY"];
 
@@ -104,22 +108,129 @@ $("tabs").addEventListener("click", e => {
 async function loadProducts(){
   const { products } = await api("/products");
   state.products = products;
-
-  const filter = $("categoryFilter");
-  if(filter.options.length <= 1){
-    for(const c of CATEGORIES) filter.add(new Option(c, c));
-  }
+  renderCategoryMenu();
   renderProducts();
 }
 
+/* A category's "line" is the thing a person would actually filter by: the make
+ * for a NAS, the drive family for a disk. */
+const lineOf = p => (p.category === "NAS" ? p.brand : p.name) || "";
+
+function linesIn(category){
+  const seen = new Map();
+  for(const p of state.products){
+    if(p.category !== category) continue;
+    const line = lineOf(p);
+    if(!line) continue;
+    seen.set(line, (seen.get(line) || 0) + 1);
+  }
+  return [...seen.entries()].sort((a,b) => a[0].localeCompare(b[0]));
+}
+
+function renderCategoryMenu(){
+  const present = CATEGORIES.filter(c => state.products.some(p => p.category === c));
+
+  $("categoryMenu").innerHTML =
+    `<button type="button" class="menu-item${state.filterCategory ? "" : " on"}" data-cat="">
+       <span>All categories</span><span class="menu-count">${state.products.length}</span>
+     </button>
+     <div class="menu-sep"></div>` +
+    present.map(cat => {
+      const count = state.products.filter(p => p.category === cat).length;
+      const lines = linesIn(cat);
+      const on = state.filterCategory === cat;
+      return `<div class="menu-row" data-row="${cat}">
+        <button type="button" class="menu-item${on ? " on" : ""}" data-cat="${cat}">
+          <span>${esc(cat)}</span>
+          <span class="menu-count">${count}${lines.length > 1 ? " ›" : ""}</span>
+        </button>
+        ${lines.length > 1 ? `<div class="submenu" data-sub="${cat}" hidden>
+          <div class="submenu-head">${esc(cat)} by ${cat === "NAS" ? "brand" : "line"}</div>
+          <button type="button" class="menu-item${on && !state.filterLine ? " on" : ""}" data-cat="${cat}" data-line="">
+            <span>All ${esc(cat)}</span><span class="menu-count">${count}</span>
+          </button>
+          ${lines.map(([line, n]) => `
+            <button type="button" class="menu-item${on && state.filterLine === line ? " on" : ""}"
+                    data-cat="${cat}" data-line="${esc(line)}">
+              <span>${esc(line)}</span><span class="menu-count">${n}</span>
+            </button>`).join("")}
+        </div>` : ""}
+      </div>`;
+    }).join("");
+
+  $("categoryLabel").textContent = state.filterCategory
+    ? state.filterCategory + (state.filterLine ? ` · ${state.filterLine}` : "")
+    : "All categories";
+}
+
+/* ---------------- menu behaviour ---------------- */
+
+function openCategoryMenu(open){
+  $("categoryMenu").hidden = !open;
+  $("categoryTrigger").setAttribute("aria-expanded", String(open));
+  if(!open) closeSubmenus();
+}
+function closeSubmenus(){
+  document.querySelectorAll("#categoryMenu .submenu").forEach(el => { el.hidden = true; });
+  document.querySelectorAll("#categoryMenu .menu-item.open").forEach(el => el.classList.remove("open"));
+}
+
+$("categoryTrigger").addEventListener("click", () => {
+  openCategoryMenu($("categoryMenu").hidden);
+});
+
+/* Hovering a category opens its lines; the whole row is the hover target so the
+   pointer can travel into the flyout without it closing underneath. */
+$("categoryMenu").addEventListener("mouseover", e => {
+  const row = e.target.closest(".menu-row");
+  if(!row) return;
+  closeSubmenus();
+  const sub = row.querySelector(".submenu");
+  if(sub){
+    sub.hidden = false;
+    row.querySelector(".menu-item")?.classList.add("open");
+  }
+});
+
+// Touch and keyboard get the same thing without a hover: focus opens it.
+$("categoryMenu").addEventListener("focusin", e => {
+  const row = e.target.closest(".menu-row");
+  if(!row || row.querySelector(".submenu:not([hidden])")) return;
+  closeSubmenus();
+  const sub = row.querySelector(".submenu");
+  if(sub) sub.hidden = false;
+});
+
+$("categoryMenu").addEventListener("click", e => {
+  const item = e.target.closest(".menu-item");
+  if(!item) return;
+
+  // A category with lines is a gateway on hover, but clicking it still filters.
+  state.filterCategory = item.dataset.cat || "";
+  state.filterLine = item.dataset.line || "";
+  openCategoryMenu(false);
+  renderCategoryMenu();
+  renderProducts();
+});
+
+document.addEventListener("click", e => {
+  if(!e.target.closest("#categoryFilter")) openCategoryMenu(false);
+});
+document.addEventListener("keydown", e => {
+  if(e.key === "Escape" && !$("categoryMenu").hidden){
+    openCategoryMenu(false);
+    $("categoryTrigger").focus();
+  }
+});
+
 function renderProducts(){
   const term = $("productSearch").value.trim().toLowerCase();
-  const cat = $("categoryFilter").value;
   const showInactive = $("showInactive").checked;
 
   const rows = state.products.filter(p =>
     (showInactive || p.active) &&
-    (!cat || p.category === cat) &&
+    (!state.filterCategory || p.category === state.filterCategory) &&
+    (!state.filterLine || lineOf(p) === state.filterLine) &&
     (!term || `${p.sku} ${p.name} ${p.brand}`.toLowerCase().includes(term))
   );
 
@@ -142,7 +253,7 @@ function renderProducts(){
       <td><span class="name">${esc(p.name)}</span>
           <span class="sub">${esc(p.sku)}${p.brand ? " · " + esc(p.brand) : ""}${p.active ? "" : " · inactive"}</span></td>
       <td>${esc(p.category)}</td>
-      <td class="num">${esc(spec)}</td>
+      <td class="num">${esc(spec)}${p.network ? `<span class="sub">${esc(p.network)}</span>` : ""}</td>
       <td class="num">${p.price ? fmt(p.price.base, pct) : `<span class="unpriced">not priced</span>`}</td>
       <td class="num">${p.price ? fmt(p.price.quote, pct) : "—"}</td>
       <td class="num">${p.price ? fmt(p.price.min, pct) : "—"}</td>
@@ -155,13 +266,14 @@ function renderProducts(){
   const unpriced = rows.filter(p => !p.price).length;
   $("productNote").textContent =
     `${rows.length} product${rows.length === 1 ? "" : "s"}` +
+    (state.filterLine ? ` in ${state.filterCategory} · ${state.filterLine}` : "") +
     (unpriced ? ` · ${unpriced} without a price, so not quotable` : "") +
     ` · minimum = base + ${Math.round(state.gstRate * 100)}% GST`;
 }
 
 const fmt = (n, isPercent) => isPercent ? `${n}%` : inr(n);
 
-["productSearch","categoryFilter","showInactive"].forEach(id =>
+["productSearch","showInactive"].forEach(id =>
   $(id).addEventListener("input", renderProducts));
 
 $("productRows").addEventListener("click", e => {
@@ -179,7 +291,13 @@ function openProduct(product){
   f.reset();
 
   const sel = $("productCategory");
-  if(!sel.options.length) for(const c of CATEGORIES) sel.add(new Option(c, c));
+  if(!sel.options.length){
+    for(const c of CATEGORIES){
+      const opt = document.createElement("option");
+      opt.value = opt.textContent = c;
+      sel.add(opt);
+    }
+  }
 
   $("productDialogTitle").textContent = product ? product.name : "New product";
   $("productError").textContent = "";
@@ -187,70 +305,72 @@ function openProduct(product){
   $("historyBlock").hidden = !product;
 
   if(product){
-    f.sku.value = product.sku;
-    f.category.value = product.category;
-    f.name.value = product.name;
-    f.brand.value = product.brand;
-    f.spec.value = product.spec;
-    f.bays.value = product.bays ?? "";
-    f.capacityTb.value = product.capacityTb ?? "";
-    f.unit.value = product.unit;
-    f.active.value = product.active ? "1" : "0";
-    f.expandable.value = product.expandable ? "1" : "0";
+    f.elements.sku.value = product.sku;
+    f.elements.category.value = product.category;
+    f.elements.name.value = product.name;
+    f.elements.brand.value = product.brand;
+    f.elements.spec.value = product.spec;
+    f.elements.bays.value = product.bays ?? "";
+    f.elements.capacityTb.value = product.capacityTb ?? "";
+    f.elements.unit.value = product.unit;
+    f.elements.network.value = product.network || "";
+    f.elements.networkUpgrade.value = product.networkUpgrade || "";
+    f.elements.active.value = product.active ? "1" : "0";
+    f.elements.expandable.value = product.expandable ? "1" : "0";
     f.querySelectorAll('input[name="raid"]').forEach(cb => { cb.checked = product.raid.includes(cb.value); });
     if(product.price){
-      f.priceBase.value = product.price.base;
-      f.priceQuote.value = product.price.quote;
+      f.elements.priceBase.value = product.price.base;
+      f.elements.priceQuote.value = product.price.quote;
     }
     loadHistory(product.id);
   } else {
-    f.category.value = "NAS";
+    f.elements.category.value = "NAS";
   }
 
-  f.priceEffectiveFrom.value = new Date().toISOString().slice(0,10);
+  f.elements.priceEffectiveFrom.value = new Date().toISOString().slice(0,10);
   syncCategoryFields();
   updateComputedMin();
-  $("productDialog").showModal();
+  showDialog($("productDialog"));
 }
 
 function syncCategoryFields(){
   const f = $("productForm");
-  const cat = f.category.value;
+  const cat = f.elements.category.value;
   $("nasFields").hidden = cat !== "NAS";
   $("driveFields").hidden = !(cat === "HDD" || cat === "SSD");
 
   // Sensible default for how this category is charged.
   if(!state.editing){
-    f.unit.value = cat === "NAS" ? "per_unit"
+    f.elements.unit.value = cat === "NAS" ? "per_unit"
       : (cat === "HDD" || cat === "SSD") ? "per_drive"
-      : f.unit.value;
+      : f.elements.unit.value;
   }
   updateComputedMin();
 }
 
 function updateComputedMin(){
   const f = $("productForm");
-  const pct = f.unit.value === "percent_of_hardware";
-  const base = Number(f.priceBase.value);
+  const pct = f.elements.unit.value === "percent_of_hardware";
+  const base = Number(f.elements.priceBase.value);
   const gst = Math.round(state.gstRate * 100);
 
   $("priceHint").textContent = pct
     ? "Percentages, not rupees: base is the floor the rep can discount to, quote is the asking rate."
     : `Enter the ex-GST base and the asking price. The quotation's minimum is worked out as base + ${gst}% GST.`;
 
-  if(!Number.isFinite(base) || !f.priceBase.value){
+  if(!Number.isFinite(base) || !f.elements.priceBase.value){
     $("computedMin").textContent = "";
     return;
   }
   $("computedMin").innerHTML = pct
-    ? `Floor <b>${base}%</b> · asking <b>${Number(f.priceQuote.value) || base}%</b>`
+    ? `Floor <b>${base}%</b> · asking <b>${Number(f.elements.priceQuote.value) || base}%</b>`
     : `Minimum shown on the quote: <b>${inr(base * (1 + state.gstRate))}</b> (${inr(base)} + ${gst}% GST)`;
 }
 
 $("productCategory").addEventListener("change", syncCategoryFields);
-$("productForm").unit.addEventListener("change", updateComputedMin);
+$("productForm").elements.unit.addEventListener("change", updateComputedMin);
 ["priceBase","priceQuote"].forEach(n =>
-  $("productForm")[n].addEventListener("input", updateComputedMin));
+  $("productForm").elements[n].addEventListener("input", updateComputedMin));
 
 async function loadHistory(productId){
   const rows = $("historyRows");
@@ -274,29 +394,31 @@ async function loadHistory(productId){
 $("saveProductBtn").addEventListener("click", async () => {
   const f = $("productForm");
   const body = {
-    sku: f.sku.value.trim(),
-    category: f.category.value,
-    name: f.name.value.trim(),
-    brand: f.brand.value.trim(),
-    spec: f.spec.value.trim(),
-    bays: f.bays.value === "" ? null : Number(f.bays.value),
-    capacityTb: f.capacityTb.value === "" ? null : Number(f.capacityTb.value),
+    sku: f.elements.sku.value.trim(),
+    category: f.elements.category.value,
+    name: f.elements.name.value.trim(),
+    brand: f.elements.brand.value.trim(),
+    spec: f.elements.spec.value.trim(),
+    bays: f.elements.bays.value === "" ? null : Number(f.elements.bays.value),
+    capacityTb: f.elements.capacityTb.value === "" ? null : Number(f.elements.capacityTb.value),
     raid: [...f.querySelectorAll('input[name="raid"]:checked')].map(cb => cb.value),
-    expandable: f.expandable.value === "1",
-    unit: f.unit.value,
-    active: f.active.value === "1"
+    expandable: f.elements.expandable.value === "1",
+    network: f.elements.network.value.trim(),
+    networkUpgrade: f.elements.networkUpgrade.value.trim(),
+    unit: f.elements.unit.value,
+    active: f.elements.active.value === "1"
   };
 
   // A price is only sent when something about it changed, so simply reopening a
   // product and saving doesn't add a no-op row to its history.
-  const base = f.priceBase.value === "" ? null : Number(f.priceBase.value);
-  const quote = f.priceQuote.value === "" ? null : Number(f.priceQuote.value);
+  const base = f.elements.priceBase.value === "" ? null : Number(f.elements.priceBase.value);
+  const quote = f.elements.priceQuote.value === "" ? null : Number(f.elements.priceQuote.value);
   const current = state.editing?.price;
   if(base != null && (!current || current.base !== base || current.quote !== quote)){
     body.price = {
       base, quote: quote ?? base,
-      effectiveFrom: f.priceEffectiveFrom.value || undefined,
-      note: f.priceNote.value.trim()
+      effectiveFrom: f.elements.priceEffectiveFrom.value || undefined,
+      note: f.elements.priceNote.value.trim()
     };
   }
 
@@ -385,17 +507,17 @@ function openUser(user){
   f.reset();
   $("userDialogTitle").textContent = user ? user.email : "New user";
   $("userError").textContent = "";
-  f.email.disabled = !!user;                     // the email is the identity; changing it makes a new account
+  f.elements.email.disabled = !!user;                     // the email is the identity; changing it makes a new account
   if(user){
-    f.name.value = user.name || "";
-    f.email.value = user.email;
-    f.role.value = user.role;
-    f.active.value = user.active ? "1" : "0";
-    f.password.placeholder = "Leave blank to keep the current password";
+    f.elements.name.value = user.name || "";
+    f.elements.email.value = user.email;
+    f.elements.role.value = user.role;
+    f.elements.active.value = user.active ? "1" : "0";
+    f.elements.password.placeholder = "Leave blank to keep the current password";
   } else {
-    f.password.placeholder = "At least 8 characters";
+    f.elements.password.placeholder = "At least 8 characters";
   }
-  $("userDialog").showModal();
+  showDialog($("userDialog"));
 }
 
 $("saveUserBtn").addEventListener("click", async () => {
@@ -404,14 +526,14 @@ $("saveUserBtn").addEventListener("click", async () => {
   $("saveUserBtn").disabled = true;
   try{
     if(state.editingUser){
-      const body = { name: f.name.value.trim(), role: f.role.value, active: f.active.value === "1" };
-      if(f.password.value) body.password = f.password.value;
+      const body = { name: f.elements.name.value.trim(), role: f.elements.role.value, active: f.elements.active.value === "1" };
+      if(f.elements.password.value) body.password = f.elements.password.value;
       await api(`/users/${state.editingUser.id}`, { method:"PATCH", body });
     } else {
       await api("/users", {
         method:"POST",
-        body: { name: f.name.value.trim(), email: f.email.value.trim(),
-                role: f.role.value, password: f.password.value }
+        body: { name: f.elements.name.value.trim(), email: f.elements.email.value.trim(),
+                role: f.elements.role.value, password: f.elements.password.value }
       });
     }
     $("userDialog").close();
@@ -425,6 +547,13 @@ $("saveUserBtn").addEventListener("click", async () => {
 });
 
 /* ---------------- dialogs ---------------- */
+
+/** `showModal` gives the backdrop and focus trap in a browser; falling back to
+ *  the open attribute keeps the dialog usable where it isn't implemented. */
+function showDialog(dlg){
+  if(typeof dlg.showModal === "function") dlg.showModal();
+  else dlg.setAttribute("open", "");
+}
 
 document.addEventListener("click", e => {
   const close = e.target.closest("[data-close]");

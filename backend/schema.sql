@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS products (
   capacity_tb REAL,                               -- drives only
   raid        TEXT NOT NULL DEFAULT '[]',         -- JSON array, NAS only
   expandable  INTEGER NOT NULL DEFAULT 0,
+  network     TEXT NOT NULL DEFAULT '',           -- NAS only: the ports it ships with, e.g. "2.5GbE x2"
+  network_upgrade TEXT NOT NULL DEFAULT '',       -- NAS only: what a card/module can add, e.g. "10GbE via PCIe"
   unit        TEXT NOT NULL DEFAULT 'per_unit',   -- per_unit | per_drive | percent_of_hardware | flat
   active      INTEGER NOT NULL DEFAULT 1,
   sort_order  INTEGER NOT NULL DEFAULT 0,

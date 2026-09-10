@@ -61,6 +61,8 @@ function shape(r, gst){
     capacityTb: r.capacity_tb ?? null,
     raid: parseJson(r.raid, []),
     expandable: bool(r.expandable),
+    network: r.network || "",
+    networkUpgrade: r.network_upgrade || "",
     unit: r.unit,
     active: bool(r.active),
     sortOrder: r.sort_order,
@@ -92,7 +94,9 @@ export async function buildPricingPayload({ asOf } = {}){
       quote: p.price.quote,
       minTax: p.price.min,
       raid: p.raid.length ? p.raid : (p.bays <= 2 ? ["RAID0","RAID1"] : ["RAID0","RAID1","RAID5","RAID6","RAID10"]),
-      expandable: p.expandable
+      expandable: p.expandable,
+      network: p.network,
+      networkUpgrade: p.networkUpgrade
     }));
 
   const hddPricing = {};

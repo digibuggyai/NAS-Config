@@ -20,7 +20,13 @@
         <p>NAS Solution Configurator</p>
       </div>
     </div>
-    <div class="topbar-tag">INTERNAL · SALES TOOL</div>
+    <div class="topbar-right">
+      <div class="topbar-tag">INTERNAL · SALES TOOL</div>
+      <a class="btn-admin" id="adminLink" href="/admin/">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        <span id="adminLabel">Admin login</span>
+      </a>
+    </div>
   </header>
 
   <div class="layout">
@@ -31,29 +37,62 @@
           <span class="sec-num">1</span>
           <div>
             <h2>Storage need</h2>
-            <p>How much usable capacity the customer needs — type it or drag the slider.</p>
+            <p>How much usable capacity the customer needs. Storage is built from whole drives, so it goes in 2 TB steps.</p>
           </div>
         </div>
         <div id="secStorage"></div>
       </section>
 
-      <section class="card">
+      <section class="card half">
         <div class="sec-head">
           <span class="sec-num">2</span>
           <div>
-            <h2>Chassis, RAID &amp; drives</h2>
-            <p>Together these decide the drive count and how many units the quote needs.</p>
+            <h2>NAS brand</h2>
+            <p>Leave it open unless the customer has a preference — it widens what can be suggested.</p>
           </div>
         </div>
-        <div id="secDrives"></div>
+        <div id="secBrand"></div>
+      </section>
+
+      <section class="card half">
+        <div class="sec-head">
+          <span class="sec-num">3</span>
+          <div>
+            <h2>Bays</h2>
+            <p>How many drive bays the chassis should have. Leave it on Auto and the tool picks the size that fits best.</p>
+          </div>
+        </div>
+        <div id="secBays"></div>
+      </section>
+
+      <section class="card half">
+        <div class="sec-head">
+          <span class="sec-num">4</span>
+          <div>
+            <h2>RAID level</h2>
+            <p>How the drives are arranged: how much of the raw capacity is usable, and how many drive failures it survives.</p>
+          </div>
+        </div>
+        <div id="secRaid"></div>
+      </section>
+
+      <section class="card half">
+        <div class="sec-head">
+          <span class="sec-num">5</span>
+          <div>
+            <h2>Room to expand</h2>
+            <p>Optional. Restricts the suggestion to units that take an expansion unit later.</p>
+          </div>
+        </div>
+        <div id="secExpand"></div>
       </section>
 
       <section class="card">
         <div class="sec-head">
-          <span class="sec-num">3</span>
+          <span class="sec-num">6</span>
           <div>
-            <h2>NAS unit</h2>
-            <p>Units in the price sheet that fit the bay count and RAID level above, cheapest first.</p>
+            <h2>Suggested NAS</h2>
+            <p>Worked out from everything above — drive size, drive count and chassis together, cheapest first.</p>
           </div>
         </div>
         <div id="secModel"></div>
@@ -61,10 +100,32 @@
 
       <section class="card">
         <div class="sec-head">
-          <span class="sec-num">4</span>
+          <span class="sec-num">7</span>
+          <div>
+            <h2>Network speed</h2>
+            <p>What the suggested unit actually ships with, and what to quote the customer.</p>
+          </div>
+        </div>
+        <div id="secSpeed"></div>
+      </section>
+
+      <section class="card">
+        <div class="sec-head">
+          <span class="sec-num">8</span>
+          <div>
+            <h2>Drives</h2>
+            <p>The suggestion picks these; change them here and the suggestion re-runs.</p>
+          </div>
+        </div>
+        <div id="secDrives"></div>
+      </section>
+
+      <section class="card">
+        <div class="sec-head">
+          <span class="sec-num">9</span>
           <div>
             <h2>Add-ons</h2>
-            <p>Both optional, priced from the sheet.</p>
+            <p>Both optional, priced from the current price list.</p>
           </div>
         </div>
         <div id="secAddons"></div>
@@ -72,7 +133,7 @@
 
       <section class="card">
         <div class="sec-head">
-          <span class="sec-num">5</span>
+          <span class="sec-num">10</span>
           <div>
             <h2>Quotation details</h2>
             <p>These appear on the PDF header.</p>

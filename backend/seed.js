@@ -10,21 +10,24 @@
  * ex-GST figure; the quoted minimum is derived as base x 1.18 at read time.
  */
 
+import { loadEnv } from "./env.js";
 import { initDb, db, closeDb, nowIso, todayIso } from "./db.js";
 import { hashPassword } from "./auth.js";
 
 const EFFECTIVE_FROM = "2026-09-10";
 
 /* ---------------- NAS units ---------------- */
-/* [sku, brand, bays, base (ex-GST), quote (asking, incl. GST), expandable] */
+/* [sku, brand, bays, base (ex-GST), quote (asking, incl. GST), expandable]
+   Expandability is column F of the price sheet: only these four take an
+   expansion unit, whatever the product line might suggest. */
 const NAS = [
   ["DS223J",      "Synology", 2,  19000,  24000, false],
-  ["DS225+",      "Synology", 2,  34000,  42000, true ],
+  ["DS225+",      "Synology", 2,  34000,  42000, false],
   ["DS725+",      "Synology", 2,  76000,  94000, true ],
   ["TS-233-2G",   "QNAP",     2,  19000,  24000, false],
   ["TS-216G-4G",  "QNAP",     2,  23500,  29000, false],
 
-  ["DS425+",      "Synology", 4,  54000,  67000, true ],
+  ["DS425+",      "Synology", 4,  54000,  67000, false],
   ["DS925+",      "Synology", 4,  78500,  97000, true ],
   ["TS-433-4G",   "QNAP",     4,  36000,  45000, false],
   ["TS-462-4G",   "QNAP",     4,  46000,  57000, false],
@@ -35,9 +38,34 @@ const NAS = [
   ["TS-664-8G",   "QNAP",     6,  70000,  87000, false],
 
   ["DS1825+",     "Synology", 8, 145000, 180000, true ],
-  ["TS-832PX-4G", "QNAP",     8,  87500, 108000, true ],
-  ["TS-873A-8G",  "QNAP",     8, 105000, 130000, true ]
+  ["TS-832PX-4G", "QNAP",     8,  87500, 108000, false],
+  ["TS-873A-8G",  "QNAP",     8, 105000, 130000, false]
 ];
+
+/* Network ports, from the manufacturers' own specification pages (Sep 2026).
+ * `builtIn` is what ships in the box — the speed the configurator quotes.
+ * `upgrade` is what an add-in card or module can reach, quoted as a note only,
+ * because the card is not in this price list. */
+const NETWORK = {
+  // Synology — synology.com/en-global/products/<model>#specs
+  "DS223J":      { builtIn:"1GbE ×1" },
+  "DS225+":      { builtIn:"2.5GbE ×1 + 1GbE ×1" },
+  "DS725+":      { builtIn:"2.5GbE ×1 + 1GbE ×1" },
+  "DS425+":      { builtIn:"2.5GbE ×1 + 1GbE ×1" },
+  "DS925+":      { builtIn:"2.5GbE ×2" },
+  "DS1525+":     { builtIn:"2.5GbE ×2", upgrade:"10GbE via E10G22-T1-Mini module" },
+  "DS1825+":     { builtIn:"2.5GbE ×2", upgrade:"up to 25GbE via PCIe add-in card" },
+
+  // QNAP — qnap.com product pages
+  "TS-233-2G":   { builtIn:"1GbE ×1" },
+  "TS-216G-4G":  { builtIn:"2.5GbE ×1 + 1GbE ×1" },
+  "TS-433-4G":   { builtIn:"2.5GbE ×1 + 1GbE ×1" },
+  "TS-462-4G":   { builtIn:"2.5GbE ×1", upgrade:"10GbE via PCIe card" },
+  "TS-464-8G":   { builtIn:"2.5GbE ×2", upgrade:"10GbE via PCIe card" },
+  "TS-664-8G":   { builtIn:"2.5GbE ×2", upgrade:"10GbE via PCIe card" },
+  "TS-832PX-4G": { builtIn:"10GbE SFP+ ×2 + 2.5GbE ×2" },
+  "TS-873A-8G":  { builtIn:"2.5GbE ×2", upgrade:"5GbE/10GbE via PCIe Gen3 card" }
+};
 
 const RAID_2BAY = ["RAID0","RAID1"];
 const RAID_MULTI = ["RAID0","RAID1","RAID5","RAID6","RAID10"];
@@ -83,7 +111,9 @@ export async function seed({ adminEmail, adminPassword, quiet = false } = {}){
       spec:`${bays}-bay desktop NAS`,
       bays, capacityTb:null,
       raid: bays <= 2 ? RAID_2BAY : RAID_MULTI,
-      expandable, unit:"per_unit", sortOrder:i
+      expandable, unit:"per_unit", sortOrder:i,
+      network: NETWORK[sku]?.builtIn ?? "",
+      networkUpgrade: NETWORK[sku]?.upgrade ?? ""
     }, { base, quote });
     added += r.added; updated += r.updated; repriced += r.repriced;
   }
@@ -94,7 +124,7 @@ export async function seed({ adminEmail, adminPassword, quiet = false } = {}){
       category:"HDD", name:line, brand: DRIVE_BRAND[line] || "",
       spec:`${cap} TB NAS drive`,
       bays:null, capacityTb:cap, raid:[], expandable:false,
-      unit:"per_drive", sortOrder: i
+      unit:"per_drive", sortOrder: i, network:"", networkUpgrade:""
     }, { base, quote });
     added += r.added; updated += r.updated; repriced += r.repriced;
   }
@@ -103,7 +133,7 @@ export async function seed({ adminEmail, adminPassword, quiet = false } = {}){
     const r = await upsert({
       sku:s.sku, category:"SERVICE", name:s.name, brand:"", spec:s.spec,
       bays:null, capacityTb:null, raid:[], expandable:false,
-      unit:s.unit, sortOrder:i
+      unit:s.unit, sortOrder:i, network:"", networkUpgrade:""
     }, { base:s.base, quote:s.quote });
     added += r.added; updated += r.updated; repriced += r.repriced;
   }
@@ -135,18 +165,18 @@ async function upsert(p, price){
     updated = 1;
     await db().run(
       `UPDATE products SET category=?, name=?, brand=?, spec=?, bays=?, capacity_tb=?, raid=?,
-              expandable=?, unit=?, sort_order=?, updated_at=? WHERE id=?`,
+              expandable=?, network=?, network_upgrade=?, unit=?, sort_order=?, updated_at=? WHERE id=?`,
       [p.category, p.name, p.brand, p.spec, p.bays, p.capacityTb, JSON.stringify(p.raid),
-       p.expandable ? 1 : 0, p.unit, p.sortOrder, nowIso(), id]
+       p.expandable ? 1 : 0, p.network, p.networkUpgrade, p.unit, p.sortOrder, nowIso(), id]
     );
   } else {
     added = 1;
     ({ lastId: id } = await db().run(
       `INSERT INTO products (sku, category, name, brand, spec, bays, capacity_tb, raid,
-                             expandable, unit, active, sort_order, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,1,?,?,?)`,
+                             expandable, network, network_upgrade, unit, active, sort_order, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)`,
       [p.sku, p.category, p.name, p.brand, p.spec, p.bays, p.capacityTb, JSON.stringify(p.raid),
-       p.expandable ? 1 : 0, p.unit, p.sortOrder, nowIso(), nowIso()]
+       p.expandable ? 1 : 0, p.network, p.networkUpgrade, p.unit, p.sortOrder, nowIso(), nowIso()]
     ));
   }
 
@@ -184,6 +214,7 @@ async function setSetting(key, value){
 
 /* Run directly: node server/seed.js */
 if(process.argv[1] && process.argv[1].endsWith("seed.js")){
+  loadEnv();
   await initDb();
   await seed({
     adminEmail: process.env.ADMIN_EMAIL,

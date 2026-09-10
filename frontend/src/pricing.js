@@ -20,12 +20,12 @@ export const FALLBACK = {
   updatedAt: null,
   models: [
     { id:"DS223J",      brand:"Synology", bays:2, quote:24000,  minTax:22420,  raid:["RAID0","RAID1"], expandable:false },
-    { id:"DS225+",      brand:"Synology", bays:2, quote:42000,  minTax:40120,  raid:["RAID0","RAID1"], expandable:true  },
+    { id:"DS225+",      brand:"Synology", bays:2, quote:42000,  minTax:40120,  raid:["RAID0","RAID1"], expandable:false  },
     { id:"DS725+",      brand:"Synology", bays:2, quote:94000,  minTax:89680,  raid:["RAID0","RAID1"], expandable:true  },
     { id:"TS-233-2G",   brand:"QNAP",     bays:2, quote:24000,  minTax:22420,  raid:["RAID0","RAID1"], expandable:false },
     { id:"TS-216G-4G",  brand:"QNAP",     bays:2, quote:29000,  minTax:27730,  raid:["RAID0","RAID1"], expandable:false },
 
-    { id:"DS425+",      brand:"Synology", bays:4, quote:67000,  minTax:63720,  raid:["RAID0","RAID1","RAID5","RAID6","RAID10"], expandable:true  },
+    { id:"DS425+",      brand:"Synology", bays:4, quote:67000,  minTax:63720,  raid:["RAID0","RAID1","RAID5","RAID6","RAID10"], expandable:false  },
     { id:"DS925+",      brand:"Synology", bays:4, quote:97000,  minTax:92630,  raid:["RAID0","RAID1","RAID5","RAID6","RAID10"], expandable:true  },
     { id:"TS-433-4G",   brand:"QNAP",     bays:4, quote:45000,  minTax:42480,  raid:["RAID0","RAID1","RAID5","RAID6","RAID10"], expandable:false },
     { id:"TS-462-4G",   brand:"QNAP",     bays:4, quote:57000,  minTax:54280,  raid:["RAID0","RAID1","RAID5","RAID6","RAID10"], expandable:false },
@@ -35,8 +35,8 @@ export const FALLBACK = {
 
     { id:"DS1525+",     brand:"Synology", bays:5, quote:142000, minTax:135700, raid:["RAID0","RAID1","RAID5","RAID6","RAID10"], expandable:true  },
     { id:"DS1825+",     brand:"Synology", bays:8, quote:180000, minTax:171100, raid:["RAID0","RAID1","RAID5","RAID6","RAID10"], expandable:true  },
-    { id:"TS-832PX-4G", brand:"QNAP",     bays:8, quote:108000, minTax:103250, raid:["RAID0","RAID1","RAID5","RAID6","RAID10"], expandable:true  },
-    { id:"TS-873A-8G",  brand:"QNAP",     bays:8, quote:130000, minTax:123900, raid:["RAID0","RAID1","RAID5","RAID6","RAID10"], expandable:true  }
+    { id:"TS-832PX-4G", brand:"QNAP",     bays:8, quote:108000, minTax:103250, raid:["RAID0","RAID1","RAID5","RAID6","RAID10"], expandable:false  },
+    { id:"TS-873A-8G",  brand:"QNAP",     bays:8, quote:130000, minTax:123900, raid:["RAID0","RAID1","RAID5","RAID6","RAID10"], expandable:false  }
   ],
   capacities: [2,4,6,8,10,12,16],
   // capacity (TB) -> drive line -> { quote, min }. Missing = not priced in the sheet.
@@ -164,7 +164,9 @@ export function normalise(raw){
       quote: Number(m.quote),
       minTax: Number(m.minTax ?? m.quote),
       raid: Array.isArray(m.raid) ? m.raid : [],
-      expandable: !!m.expandable
+      expandable: !!m.expandable,
+      network: String(m.network || "").trim(),
+      networkUpgrade: String(m.networkUpgrade || "").trim()
     }))
     .filter(m => m.id && m.raid.length && Number.isFinite(m.bays) && Number.isFinite(m.quote));
 

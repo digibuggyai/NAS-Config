@@ -8,7 +8,7 @@
  * Postgres driver rewrites the handful of differences on the way through.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -18,8 +18,9 @@ let driver = null;
 
 /* ---------------- placeholder + dialect translation ---------------- */
 
-/** `?, ?` -> `$1, $2`, leaving anything inside string literals alone. */
-function toPgPlaceholders(sql){
+/** `?, ?` -> `$1, $2`, leaving anything inside string literals alone.
+ *  Exported for tests: this rewrite is the whole Postgres compatibility story. */
+export function toPgPlaceholders(sql){
   let i = 0, out = "", inString = false;
   for(let c = 0; c < sql.length; c++){
     const ch = sql[c];
@@ -29,12 +30,28 @@ function toPgPlaceholders(sql){
   return out;
 }
 
-/** Rewrites the schema for Postgres. Only the column types differ. */
-function schemaForPg(sql){
+/** Rewrites the schema for Postgres.
+ *
+ *  Timestamps are stored as ISO text so both databases agree on the format.
+ *  Postgres refuses `DEFAULT CURRENT_TIMESTAMP` on a text column — it is a
+ *  timestamptz, and there is no implicit cast — so the default is cast here.
+ */
+export function schemaForPg(sql){
   return sql
     .replace(/INTEGER PRIMARY KEY AUTOINCREMENT/g, "SERIAL PRIMARY KEY")
-    .replace(/DEFAULT CURRENT_TIMESTAMP/g, "DEFAULT CURRENT_TIMESTAMP")
+    .replace(/DEFAULT CURRENT_TIMESTAMP/g, "DEFAULT (now()::text)")
     .replace(/\bREAL\b/g, "DOUBLE PRECISION");
+}
+
+/* Which tables have an `id` column worth returning after an insert. `sessions`
+ * is keyed by its token hash and `settings` by its key, so asking Postgres for
+ * a RETURNING id on those is an error — and sessions are written on every
+ * single login. */
+const TABLES_WITH_ID = new Set(["users", "products", "prices", "quotes"]);
+
+export function insertReturnsId(sql){
+  const m = /^\s*insert\s+into\s+"?(\w+)"?/i.exec(sql);
+  return !!m && TABLES_WITH_ID.has(m[1].toLowerCase()) && !/returning/i.test(sql);
 }
 
 /* ---------------- SQLite (libsql) ----------------
@@ -46,6 +63,13 @@ function schemaForPg(sql){
 
 async function sqliteDriver(file){
   const { createClient } = await import("@libsql/client");
+
+  // The data directory is gitignored, so a fresh clone doesn't have one and
+  // SQLite can't create the file inside a directory that isn't there.
+  if(!file.startsWith("libsql:") && !file.startsWith("http")){
+    mkdirSync(dirname(file), { recursive: true });
+  }
+
   const client = createClient({ url: file.startsWith("libsql:") || file.startsWith("http") ? file : `file:${file}` });
 
   await client.execute("PRAGMA foreign_keys = ON");
@@ -87,11 +111,25 @@ function plain(row){
 
 async function postgresDriver(url){
   const { default: pg } = await import("pg");
+
+  const local = /localhost|127\.0\.0\.1/.test(url);
   const pool = new pg.Pool({
     connectionString: url,
-    // Managed Postgres almost always terminates TLS with its own certificate.
-    ssl: url.includes("localhost") ? false : { rejectUnauthorized: false }
+    /* Hosted Postgres (Neon, Render, Railway) presents a certificate from a
+       public CA, so it is verified properly. Set PGSSL_NO_VERIFY=1 only for a
+       server using a self-signed certificate. */
+    ssl: local ? false : { rejectUnauthorized: process.env.PGSSL_NO_VERIFY !== "1" },
+    /* A serverless database sleeps when idle and takes a moment to wake, which
+       is longer than the default 0ms "give up immediately". */
+    connectionTimeoutMillis: Number(process.env.PGCONNECT_TIMEOUT_MS) || 15000,
+    idleTimeoutMillis: 30000,
+    max: Number(process.env.PGPOOL_MAX) || 10,
+    keepAlive: true
   });
+
+  // A pool error on an idle client would otherwise be an unhandled crash when
+  // the database drops a sleeping connection.
+  pool.on("error", err => console.error("[db] idle client error:", err.message));
 
   const query = async (sql, params) => (await pool.query(toPgPlaceholders(sql), params)).rows;
 
@@ -100,8 +138,8 @@ async function postgresDriver(url){
     async all(sql, params = []){ return query(sql, params); },
     async get(sql, params = []){ return (await query(sql, params))[0] ?? null; },
     async run(sql, params = []){
-      // `id` is returned so inserts can report the new row the same way SQLite does.
-      const wantsId = /^\s*insert/i.test(sql) && !/returning/i.test(sql);
+      // `id` is returned so inserts can report the new row the way SQLite does.
+      const wantsId = insertReturnsId(sql);
       const res = await pool.query(toPgPlaceholders(wantsId ? sql + " RETURNING id" : sql), params);
       return { changes: res.rowCount, lastId: res.rows[0]?.id ?? null };
     },
@@ -136,7 +174,27 @@ export async function initDb({ url = process.env.DATABASE_URL, file = process.en
 
   const schema = readFileSync(join(here, "schema.sql"), "utf8");
   await driver.exec(schema);
+  await migrate(driver);
   return driver;
+}
+
+/* `CREATE TABLE IF NOT EXISTS` never adds a column to a table that already
+   exists, so columns added after the first release are applied here. Each step
+   is written to be safe to run against a database that already has it. */
+async function migrate(d){
+  const columns = [
+    ["products", "network", "TEXT NOT NULL DEFAULT ''"],
+    ["products", "network_upgrade", "TEXT NOT NULL DEFAULT ''"]
+  ];
+  for(const [table, column, type] of columns){
+    try{
+      await d.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+      console.log(`[db] added ${table}.${column}`);
+    }catch(e){
+      // already there — the only expected failure
+      if(!/duplicate|already exists/i.test(e.message)) throw e;
+    }
+  }
 }
 
 export function db(){

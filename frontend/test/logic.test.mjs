@@ -105,7 +105,14 @@ test("2-bay models are excluded from RAID 5", () => {
 
 test("preferExpandable floats expandable units up", () => {
   const list = candidateModels(FALLBACK.models, 8, "RAID5", true);
-  assert.equal(list[0].id, "TS-832PX-4G");        // cheapest expandable 8-bay
+  // Per column F of the price sheet only the DS1825+ is expandable at 8 bays —
+  // the QNAP PX/A units are not, whatever their product line suggests.
+  assert.equal(list[0].id, "DS1825+");
+});
+
+test("expandability follows the price sheet, not the model name", () => {
+  const expandable = FALLBACK.models.filter(m => m.expandable).map(m => m.id).sort();
+  assert.deepEqual(expandable, ["DS1525+","DS1825+","DS725+","DS925+"]);
 });
 
 test("total = NAS×units + drives + install + AMC%", () => {
@@ -160,4 +167,25 @@ test("an unpriced drive line contributes nothing rather than NaN", () => {
   });
   assert.equal(p.hddQuote, 0);
   assert.equal(p.grandQuote, 45000);
+});
+
+/* ---------------- network speed ---------------- */
+
+test("the top speed of a ports string is the fastest link in it", async () => {
+  const { topSpeed, labelForSpeed, networkFor } = await import("../src/logic.js");
+
+  assert.equal(topSpeed("1GbE ×1"), 1);
+  assert.equal(topSpeed("2.5GbE ×1 + 1GbE ×1"), 2.5, "a 1GbE port alongside doesn't slow it down");
+  assert.equal(topSpeed("10GbE SFP+ ×2 + 2.5GbE ×2"), 10);
+  assert.equal(topSpeed(""), 0);
+  assert.equal(topSpeed(undefined), 0);
+
+  assert.equal(labelForSpeed(2.5), "2.5GbE");
+  assert.equal(labelForSpeed(25), "10GbE", "quotations only talk in 1/2.5/10");
+  assert.equal(labelForSpeed(0), null);
+
+  const net = networkFor({ network:"2.5GbE ×2", networkUpgrade:"10GbE via PCIe card" });
+  assert.equal(net.quotable, "2.5GbE", "the card isn't in the quote, so it isn't quoted");
+  assert.equal(net.upgrade, "10GbE via PCIe card");
+  assert.equal(networkFor({}), null);
 });

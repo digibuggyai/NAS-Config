@@ -3,6 +3,7 @@
 import express from "express";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadEnv } from "./env.js";
 import { initDb } from "./db.js";
 import { attachUser } from "./auth.js";
 import { router } from "./routes.js";
@@ -39,6 +40,7 @@ export function createApp(){
 
 /* Run directly: node server/index.js */
 if(process.argv[1] && process.argv[1].endsWith(join("backend", "index.js"))){
+  loadEnv();
   await initDb();
   const port = Number(process.env.PORT) || 3000;
   createApp().listen(port, () => {

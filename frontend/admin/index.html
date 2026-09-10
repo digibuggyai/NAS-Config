@@ -56,7 +56,14 @@
     <div class="panel-head">
       <div class="filters">
         <input type="search" id="productSearch" placeholder="Search model, brand, SKU…">
-        <select id="categoryFilter"><option value="">All categories</option></select>
+        <div class="menu-filter" id="categoryFilter">
+          <button type="button" class="menu-trigger" id="categoryTrigger"
+                  aria-haspopup="true" aria-expanded="false">
+            <span id="categoryLabel">All categories</span>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="menu" id="categoryMenu" hidden></div>
+        </div>
         <label class="inline-check"><input type="checkbox" id="showInactive"> Show inactive</label>
       </div>
       <button type="button" class="btn-primary" id="newProductBtn">New product</button>
@@ -140,6 +147,14 @@
         </label>
         <label>Expandable
           <select name="expandable"><option value="0">No</option><option value="1">Yes</option></select>
+        </label>
+        <label>Network ports
+          <input type="text" name="network" placeholder="2.5GbE ×2">
+          <span class="field-note">What ships in the box — this is the speed quoted.</span>
+        </label>
+        <label>Network upgrade
+          <input type="text" name="networkUpgrade" placeholder="10GbE via PCIe card">
+          <span class="field-note">What a card or module can add. Shown as a note; not quoted.</span>
         </label>
         <fieldset class="wide raid-set">
           <legend>RAID levels supported</legend>

@@ -12,11 +12,13 @@
     "start": "node backend/index.js",
     "dev": "node backend/index.js",
     "seed": "node backend/seed.js",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "db:check": "node backend/check-db.js"
   },
   "dependencies": {
     "@libsql/client": "^0.15.15",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "pg": "^8.23.0"
   },
   "devDependencies": {
     "jsdom": "^29.1.1"

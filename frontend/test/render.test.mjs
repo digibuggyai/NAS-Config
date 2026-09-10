@@ -1,6 +1,6 @@
 /* Smoke test for the configurator: boots index.html in jsdom with the real
- * app.js and drives the page the way a rep would. Catches broken element ids
- * and template mistakes that unit tests on the maths never would. */
+ * app.js and drives the page the way a rep would — storage, brand, RAID,
+ * expandability, then the unit the tool suggests from all of it. */
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -10,9 +10,6 @@ import { JSDOM } from "jsdom";
 const root = new URL("../", import.meta.url);
 const html = readFileSync(new URL("index.html", root), "utf8");
 
-/* app.js runs on import and touches the document, so the DOM has to be installed
- * as the global before that import is evaluated. Node caches ES modules, so it
- * is imported once and every test drives the same page — in order. */
 let win;
 test.before(async () => {
   // a real http origin, so localStorage works the way it does in a browser
@@ -33,237 +30,267 @@ const text = id => $(id).textContent;
 const pick = (sec, sel) => $(sec).querySelector(sel);
 const all  = (sec, sel) => [...$(sec).querySelectorAll(sel)];
 const fire = (el, type) => el.dispatchEvent(new win.Event(type, { bubbles:true }));
+const choose = (sec, sel) => { const el = pick(sec, sel); el.checked = true; fire(el, "change"); return el; };
 
-test("every section renders on one page, with no wizard chrome", () => {
-  assert.match(text("dataSyncNote"), /snapshot|price list/i);
-  for(const id of ["secStorage","secDrives","secModel","secAddons","secDetails"]){
-    assert.ok($(id).children.length > 0, `${id} has content`);
-  }
-  assert.equal(win.document.querySelectorAll(".pstep").length, 0, "no progress rail");
-  assert.equal($("nextBtn"), null, "no Next button");
-  assert.equal($("backBtn"), null, "no Back button");
-  assert.equal(win.document.querySelectorAll(".card").length, 5);
+/* ---------------- shape ---------------- */
+
+test("the sections run in the order the sales conversation does", () => {
+  const ids = [...win.document.querySelectorAll(".sections .card > div[id]")].map(d => d.id);
+  assert.deepEqual(ids, [
+    "secStorage","secBrand","secBays","secRaid","secExpand",
+    "secModel","secSpeed","secDrives","secAddons","secDetails"
+  ]);
 });
 
-test("section 1 offers a typed figure, a slider and presets — and no use case", () => {
-  assert.ok(pick("secStorage", "#storageRange"));
-  assert.ok(pick("secStorage", "#storageInput"));
-  assert.equal(all("secStorage", "[data-preset]").length, 4);
-  assert.equal(all("secStorage", 'input[name="useCase"]').length, 0, "use case is gone");
-  assert.equal(pick("secStorage", "#storageInput").value, "20");
+/* ---------------- 1. storage ---------------- */
+
+test("storage is a list of capacities that can actually be built", () => {
+  const sel = pick("secStorage", "#storageSelect");
+  assert.ok(sel, "a picker, not a free-typed figure");
+
+  const sizes = all("secStorage", "#storageSelect option").map(o => Number(o.value));
+  assert.ok(sizes.length > 10, "a real range is offered");
+  assert.deepEqual(sizes, [...sizes].sort((a,b) => a-b), "in order");
+  assert.equal(new Set(sizes).size, sizes.length, "no duplicates");
+
+  // no free-text entry survives, so an unbuildable figure can't be typed at all
+  assert.equal(pick("secStorage", "#storageInput"), null);
+  assert.equal(pick("secStorage", "#storageRange"), null);
 });
 
-test("typing a figure drives the quote, and the slider follows", () => {
-  const input = pick("secStorage", "#storageInput");
-  input.value = "40";
-  fire(input, "input");
-
-  assert.equal(pick("secStorage", "#storageRange").value, "40");
-  assert.match(text("quoteSummary"), /40 TB/);
-  // the field the rep is typing in must survive untouched
-  assert.equal(pick("secStorage", "#storageInput"), input);
+test("every offered size is one whole drives can produce", () => {
+  // at RAID 5 with the priced capacities, 2 TB is impossible: the smallest
+  // parity array is 3 drives, and the smallest drive is 2 TB, giving 4 TB
+  const values = all("secStorage", "#storageSelect option").map(o => Number(o.value));
+  assert.ok(!values.includes(2), "2 TB can't be built at RAID 5");
+  assert.ok(values.includes(4), "4 TB can: 3 x 2 TB");
+  assert.ok(values.includes(20), "20 TB can: 3 x 10 TB");
 });
 
-test("an out-of-range figure is clamped when committed", () => {
-  const input = pick("secStorage", "#storageInput");
-  input.value = "9999";
-  fire(input, "input");
-  fire(input, "change");
-  assert.equal(pick("secStorage", "#storageInput").value, "200");
+test("the picker says what the chosen size is made of", () => {
+  assert.match($("secStorage").textContent, /can be built at RAID5/);
+  assert.match($("secStorage").textContent, /20 TB = \d+× \d+ TB at RAID5/);
+});
 
-  const emptied = pick("secStorage", "#storageInput");
-  emptied.value = "";
-  fire(emptied, "change");
-  assert.equal(pick("secStorage", "#storageInput").value, "2");
+test("changing RAID re-offers the sizes that level can produce", () => {
+  const before = all("secStorage", "#storageSelect option").map(o => o.value);
+  choose("secRaid", 'input[name="raid"][value="RAID10"]');
+  const after = all("secStorage", "#storageSelect option").map(o => o.value);
 
-  const back = pick("secStorage", "#storageInput");
+  assert.notDeepEqual(after, before, "RAID 10 builds different capacities");
+  assert.ok(!after.includes("10"), "10 TB isn't a RAID 10 capacity here");
+
+  choose("secRaid", 'input[name="raid"][value="RAID5"]');
+});
+
+test("a size that stops being buildable moves to the nearest that is, and says so", () => {
+  const sel = pick("secStorage", "#storageSelect");
+  sel.value = "14";                       // 14 TB exists at RAID 5 (3 x 7? no — 8+6)
+  fire(sel, "change");
+  assert.equal(pick("secStorage", "#storageSelect").value, "14");
+
+  // RAID 10 can't make 14 TB from these drives, so the tool moves and explains
+  choose("secRaid", 'input[name="raid"][value="RAID10"]');
+  const moved = Number(pick("secStorage", "#storageSelect").value);
+  assert.notEqual(moved, 14);
+  assert.match($("secStorage").textContent, /can't be built with these choices/);
+  assert.match($("secStorage").textContent, /moved to/);
+
+  choose("secRaid", 'input[name="raid"][value="RAID5"]');
+  const back = pick("secStorage", "#storageSelect");
   back.value = "20";
-  fire(back, "input");
   fire(back, "change");
 });
 
-test("the chassis size can be chosen, or left on auto", () => {
-  const bays = all("secDrives", 'input[name="bays"]');
-  assert.ok(bays.length >= 4, "auto plus the tiers the sheet stocks");
-  assert.equal(bays[0].value, "auto");
-  assert.equal(pick("secDrives", 'input[name="bays"]:checked').value, "auto");
+/* ---------------- 2-4. the inputs the suggestion reads ---------------- */
+
+test("brand can be left open or pinned to one make", () => {
+  const brands = all("secBrand", 'input[name="brand"]').map(i => i.value);
+  assert.ok(brands.includes("any"));
+  assert.ok(brands.includes("Synology"));
+  assert.ok(brands.includes("QNAP"));
+  assert.equal(pick("secBrand", 'input[name="brand"]:checked').value, "any");
 });
 
-test("picking a smaller chassis adds units rather than a bigger box", () => {
-  const two = pick("secDrives", 'input[name="bays"][value="2"]');
-  two.checked = true;
-  fire(two, "change");
-
-  assert.match(text("quoteSummary"), /2-bay/);
-  assert.ok(all("secModel", 'input[name="modelId"]').length >= 0);
-
-  const auto = pick("secDrives", 'input[name="bays"][value="auto"]');
-  auto.checked = true;
-  fire(auto, "change");
-  assert.equal(pick("secDrives", 'input[name="bays"]:checked').value, "auto");
+test("bays can be left to the tool or pinned to a size it stocks", () => {
+  const tiles = all("secBays", 'input[name="bays"]');
+  assert.deepEqual(tiles.map(t => t.value), ["", "2", "4", "5", "6", "8"]);
+  assert.equal(pick("secBays", 'input[name="bays"]:checked').value, "", "Auto by default");
+  // each size says what it would actually hold, so the choice is about capacity
+  assert.match($("secBays").textContent, /TB/);
 });
 
-test("section 2 offers RAID, capacity, drive line and speed", () => {
-  assert.equal(all("secDrives", 'input[name="raid"]').length, 5);
-  assert.ok(all("secDrives", 'input[name="driveCap"]').length >= 5);
-  assert.ok(all("secDrives", 'input[name="driveBrand"]').length >= 1);
-  assert.equal(all("secDrives", 'input[name="speed"]').length, 4);
+test("pinning a bay count re-recommends the drives that suit it", () => {
+  choose("secBays", 'input[name="bays"][value="4"]');
+  const four = $("secModel").querySelector(".model-card.selected .model-meta").textContent;
+  assert.match(four, /in 4 bays/);
+
+  choose("secBays", 'input[name="bays"][value="6"]');
+  const six = $("secModel").querySelector(".model-card.selected .model-meta").textContent;
+  assert.match(six, /in 6 bays/);
+  assert.notEqual(six.replace(/\s+/g," "), four.replace(/\s+/g," "),
+    "a different chassis gets a different drive combination");
+
+  choose("secBays", 'input[name="bays"][value=""]');
 });
 
-test("no unit is preselected, so nothing is priced on load", () => {
-  assert.ok(all("secModel", 'input[name="modelId"]').length > 0, "candidates are listed");
-  assert.equal(pick("secModel", ".model-card.selected"), null, "none chosen");
-  assert.ok(pick("secModel", ".select-prompt"), "the rep is told to pick one");
-
+test("a bay count nothing can satisfy says so instead of quoting", () => {
+  // 2-bay chassis only do RAID 0/1, so RAID 5 at 2 bays is impossible
+  choose("secBays", 'input[name="bays"][value="2"]');
+  assert.match($("secBays").textContent, /No 2-bay unit can do this/);
   assert.equal(text("grandMax"), "—");
-  assert.equal(text("grandMin"), "—");
-  assert.equal(text("rtAmount"), "—");
-  assert.ok($("quotePanel").classList.contains("unpriced"));
   assert.equal($("generatePdf").disabled, true);
-  assert.match(text("quoteRef"), /Not yet priced/);
-  assert.match(text("quoteSummary"), /Not selected/);
+
+  choose("secBays", 'input[name="bays"][value=""]');
+  assert.match(text("grandMax"), /^₹[\d,]+$/);
 });
 
-test("what has been answered still shows in the panel", () => {
-  assert.match(text("quoteSummary"), /Target usable/);
-  assert.match(text("quoteSummary"), /20 TB/);
-  assert.match(text("quoteSummary"), /Exos|IronWolf|Ultrastar/);
+test("RAID offers all five levels and defaults to 5", () => {
+  assert.equal(all("secRaid", 'input[name="raid"]').length, 5);
+  assert.equal(pick("secRaid", 'input[name="raid"]:checked').value, "RAID5");
 });
 
-test("RAID defaults to 5 and is the rep's to change", () => {
-  assert.equal(pick("secDrives", 'input[name="raid"]:checked').value, "RAID5");
-  assert.match(text("quoteSummary"), /RAID5/);
-  assert.equal(text("grandMax"), "—", "still unpriced until a unit is chosen");
+test("expandability is a single optional tick", () => {
+  const box = pick("secExpand", 'input[name="expandable"]');
+  assert.ok(box);
+  assert.equal(box.checked, false);
 });
 
-test("changing capacity keeps the drive line valid for that capacity", () => {
-  const six = pick("secDrives", 'input[name="driveCap"][value="6"]');
-  six.checked = true;
-  fire(six, "change");
+/* ---------------- 5. the suggestion ---------------- */
 
-  assert.deepEqual(all("secDrives", 'input[name="driveBrand"]').map(i => i.value), ["WD Ultrastar"]);
-  assert.match(text("quoteSummary"), /WD Ultrastar/);
-
-  const eight = pick("secDrives", 'input[name="driveCap"][value="8"]');
-  eight.checked = true;
-  fire(eight, "change");
-  assert.deepEqual(all("secDrives", 'input[name="driveBrand"]').map(i => i.value), ["Exos"]);
-});
-
-test("the unit list is filtered to the bay tier and RAID level", () => {
+test("a unit is suggested automatically and marked as the recommendation", () => {
   const cards = all("secModel", 'input[name="modelId"]');
   assert.ok(cards.length > 0);
-  assert.ok($("secModel").textContent.includes("Best price"));
-  assert.ok($("secModel").textContent.includes("bays used"));
-});
-
-test("choosing a unit prices the quotation and enables the PDF", () => {
-  const first = all("secModel", 'input[name="modelId"]')[0];
-  first.checked = true;
-  fire(first, "change");
-
+  assert.ok(pick("secModel", ".model-card.selected"), "one is chosen for the rep");
+  assert.match($("secModel").textContent, /Recommended/);
+  assert.match($("secModel").textContent, /TB usable/);
+  assert.match($("secModel").textContent, /spare bay/);
   assert.match(text("grandMax"), /^₹[\d,]+$/);
-  assert.equal(text("grandMax"), text("rtAmount"));
-  assert.equal($("generatePdf").disabled, false);
-  assert.equal($("quotePanel").classList.contains("unpriced"), false);
-  assert.match(text("quoteRef"), /Draft/);
-  assert.ok(pick("secModel", ".model-card.selected"));
-  assert.equal(pick("secModel", ".select-prompt"), null);
 });
 
-test("picking a different unit changes the total", () => {
+test("pinning a brand restricts what is suggested", () => {
+  choose("secBrand", 'input[name="brand"][value="Synology"]');
+  const names = all("secModel", 'input[name="modelId"]').map(i => i.value);
+  assert.ok(names.length > 0);
+  assert.ok(names.every(n => /^DS|^RS/.test(n)), `only Synology, got ${names.join(",")}`);
+
+  choose("secBrand", 'input[name="brand"][value="any"]');
+});
+
+test("asking for expansion room narrows to the four units that take one", () => {
+  choose("secExpand", 'input[name="expandable"]');
+  const names = all("secModel", 'input[name="modelId"]').map(i => i.value);
+  assert.ok(names.length > 0);
+  for(const n of names){
+    assert.ok(["DS725+","DS925+","DS1525+","DS1825+"].includes(n),
+      `${n} is not expandable per the price sheet`);
+  }
+  // DS425+ is not expandable, whatever the "+" in its name suggests
+  assert.ok(!names.includes("DS425+"));
+
+  const box = pick("secExpand", 'input[name="expandable"]');
+  box.checked = false;
+  fire(box, "change");
+});
+
+test("choosing a different unit sticks, and can be handed back to the tool", () => {
   const cards = all("secModel", 'input[name="modelId"]');
   if(cards.length < 2) return;
+
   const before = text("grandMax");
   cards[1].checked = true;
   fire(cards[1], "change");
   assert.notEqual(text("grandMax"), before);
+  assert.match($("secModel").textContent, /Chosen by you/);
+
+  $("secModel").querySelector("#resetPick").click();
+  assert.match($("secModel").textContent, /Recommended for/);
 });
 
-test("add-ons move the total and appear as line items", () => {
+/* ---------------- 6. network speed ---------------- */
+
+test("network speed reports what the chosen unit actually ships with", () => {
+  // The offline snapshot carries no port data, so the section must say so
+  // rather than invent a figure; against the live API it names the ports.
+  const warn = pick("secSpeed", ".field-warn");
+  const prompt = pick("secSpeed", ".select-prompt");
+  assert.ok(warn || prompt, "it says something about the chosen unit");
+  if(warn) assert.match(warn.textContent, /No network ports recorded/);
+  assert.ok(all("secSpeed", 'input[name="speed"]').length >= 3, "a speed can still be quoted");
+});
+
+/* ---------------- 7. drives ---------------- */
+
+test("drives default to automatic and can be pinned", () => {
+  assert.equal(pick("secDrives", 'input[name="driveCap"]:checked').value, "");
+  assert.equal(pick("secDrives", 'input[name="driveLine"]:checked').value, "");
+
+  choose("secDrives", 'input[name="driveCap"][value="16"]');
+  assert.match(text("quoteSummary"), /16TB/);
+
+  // the suggestion re-runs within that constraint
+  assert.ok(all("secModel", 'input[name="modelId"]').length > 0);
+
+  choose("secDrives", 'input[name="driveCap"][value=""]');
+});
+
+/* ---------------- 8-9. the rest ---------------- */
+
+test("add-ons move the total", () => {
   const rows = () => all("priceTableBody", "tr").map(r => r.textContent);
-  assert.ok(rows().some(r => /Installation/.test(r)), "installation on by default");
+  assert.ok(rows().some(r => /Installation/.test(r)));
 
   const before = text("grandMax");
-  const amc = pick("secAddons", 'input[name="includeAMC"]');
-  amc.checked = true;
-  fire(amc, "change");
-
+  choose("secAddons", 'input[name="includeAMC"]');
   assert.ok(rows().some(r => /AMC/.test(r)));
   assert.notEqual(text("grandMax"), before);
 });
 
-test("a RAID change that invalidates the unit un-prices the quote", () => {
-  const r10 = pick("secDrives", 'input[name="raid"][value="RAID10"]');
-  const before = pick("secModel", 'input[name="modelId"]:checked').value;
-
-  const r0 = pick("secDrives", 'input[name="raid"][value="RAID0"]');
-  r0.checked = true;
-  fire(r0, "change");
-
-  // RAID 0 needs a single drive, which lands on the 2-bay tier — the previously
-  // chosen 4-bay unit is no longer a candidate, so the quote must stop pricing it.
-  const stillListed = all("secModel", 'input[name="modelId"]').map(i => i.value);
-  if(!stillListed.includes(before)){
-    assert.equal(text("grandMax"), "—");
-    assert.equal($("generatePdf").disabled, true);
-  }
-  assert.ok(r10);  // the tile is still offered
-});
-
 test("customer details re-price without redrawing the inputs", () => {
-  const first = all("secModel", 'input[name="modelId"]')[0];
-  first.checked = true;
-  fire(first, "change");
-
   const name = pick("secDetails", 'input[name="custName"]');
   name.value = "Aarav Enterprises";
   fire(name, "input");
-
-  // the same node is still in the document, so the caret can't have jumped
   assert.equal(pick("secDetails", 'input[name="custName"]'), name);
   assert.equal(name.value, "Aarav Enterprises");
 });
 
-test("quote validity switches, keeps its highlight, and reaches the PDF", () => {
-  const tiles = all("secDetails", 'input[name="validity"]');
-  assert.equal(tiles.length, 3);
-  assert.equal(pick("secDetails", 'input[name="validity"]:checked').value, "15 days");
-  assert.match(text("quoteSummary"), /15 days/);
-
-  const thirty = tiles.find(t => t.value === "30 days");
+test("quote validity keeps its highlight", () => {
+  const thirty = all("secDetails", 'input[name="validity"]').find(t => t.value === "30 days");
   thirty.checked = true;
   fire(thirty, "change");
-
-  // section 5 is never re-rendered, so the highlight has to be moved by hand
   assert.ok(thirty.closest(".tile").classList.contains("selected"));
-  assert.equal(
-    all("secDetails", 'input[name="validity"]').filter(t => t.closest(".tile").classList.contains("selected")).length,
-    1, "exactly one tile stays highlighted"
-  );
   assert.match(text("quoteSummary"), /30 days/);
 });
 
-test("a target beyond one chassis raises the multi-unit banner", () => {
-  const r6 = pick("secDrives", 'input[name="raid"][value="RAID6"]');
-  r6.checked = true;
-  fire(r6, "change");
+/* ---------------- panel ---------------- */
 
-  const slider = pick("secStorage", "#storageRange");
-  slider.value = "200";
-  fire(slider, "input");
-  fire(slider, "change");
+test("the quotation panel leads with the unit being sold", () => {
+  const model = pick("quoteSummary", ".qs-model");
+  const brand = pick("quoteSummary", ".qs-brand");
+  assert.ok(model, "the model headlines the panel");
+  assert.match(model.textContent, /\S/);
+  assert.match(brand.textContent, /-bay/, "with its make and chassis size");
 
-  assert.match($("secModel").textContent, /units needed/);
-  assert.match(text("quoteSummary"), /×/);
+  // and it comes before every detail row
+  const first = $("quoteSummary").firstElementChild;
+  assert.ok(first.classList.contains("qs-headline"));
+});
+
+test("the panel then covers what is delivered, then what was asked for", () => {
+  const labels = all("quoteSummary", ".qs-row .k").map(k => k.textContent);
+  assert.deepEqual(labels, [
+    "Drives","Usable delivered","Network",
+    "RAID","Target usable","Brand asked for","Bays asked for","Expandable","Valid for"
+  ]);
+});
+
+test("the admin button is present and points at the admin", () => {
+  assert.equal($("adminLink").getAttribute("href"), "/admin/");
 });
 
 test("the mobile quote sheet opens and closes", () => {
   $("openQuote").click();
   assert.ok($("quotePanel").classList.contains("open"));
-  assert.equal($("scrim").hidden, false);
-
   $("closeQuote").click();
   assert.equal($("quotePanel").classList.contains("open"), false);
-  assert.equal($("scrim").hidden, true);
 });

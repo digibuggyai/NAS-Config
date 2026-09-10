@@ -2,6 +2,10 @@ node_modules/
 .DS_Store
 *.pdf
 
-# local database
+# local database — the directory itself is kept via backend/data/.gitkeep
 backend/data/*.db
 backend/data/*.db-*
+
+# environment / credentials
+.env
+backend/.env
