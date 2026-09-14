@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-09-09",
+  "updatedAt": "2026-09-15",
   "source": "Google Sheet \"NAS COLD MESSAGE\" > Pricing tab (manual transcription)",
   "models": [
     { "id":"DS223J",      "brand":"Synology", "bays":2, "quote":24000,  "minTax":22420,  "raid":["RAID0","RAID1"], "expandable":false },
@@ -21,12 +21,12 @@
   "capacities": [2,4,6,8,10,12,16],
   "hddPricing": {
     "2":  { "Exos":{"quote":21000,"min":20060}, "IronWolf":{"quote":19000,"min":18054} },
-    "4":  { "IronWolf":{"quote":22000,"min":21004} },
-    "6":  { "WD Ultrastar":{"quote":35000,"min":33040} },
+    "4":  { "Exos":{"quote":27010.2,"min":25724}, "IronWolf":{"quote":22000,"min":21004} },
+    "6":  { "WD Ultrastar":{"quote":35000,"min":28320} },
     "8":  { "Exos":{"quote":45000,"min":43070} },
     "10": { "Exos":{"quote":52000,"min":49560}, "IronWolf":{"quote":50000,"min":47200}, "WD Ultrastar":{"quote":50000,"min":47790} },
     "12": { "Exos":{"quote":68000,"min":64900}, "WD Ultrastar":{"quote":65000,"min":62540} },
-    "16": { "Exos":{"quote":82000,"min":78470}, "WD Ultrastar":{"quote":82000,"min":77880} }
+    "16": { "Exos":{"quote":82000,"min":78470}, "WD Ultrastar":{"quote":82000,"min":79060} }
   },
   "install": { "quote":5900, "min":4130 },
   "amcRate": { "quote":0.10, "min":0.07 }

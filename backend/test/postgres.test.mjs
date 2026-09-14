@@ -146,3 +146,17 @@ test("libpq-only connection parameters are dropped before pg sees them", async (
   // and an unparseable string is passed through rather than mangled
   assert.equal(stripLibpqParams("not a url"), "not a url");
 });
+
+test("today is the India business date, not the UTC date", async () => {
+  const { todayIso } = await import("../db.js");
+
+  // 00:51 IST on the 15th is still 19:21 UTC on the 14th. Before the fix, a price
+  // entered in the first 5.5 hours of an Indian morning was dated the day before.
+  assert.equal(todayIso(new Date("2026-09-14T19:21:00Z")), "2026-09-15");
+
+  // just before IST midnight it is still the same day in both
+  assert.equal(todayIso(new Date("2026-09-14T18:29:00Z")), "2026-09-14");
+
+  // and the shape is what effective_from stores
+  assert.match(todayIso(), /^\d{4}-\d{2}-\d{2}$/);
+});

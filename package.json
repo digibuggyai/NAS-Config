@@ -13,7 +13,8 @@
     "dev": "node backend/index.js",
     "seed": "node backend/seed.js",
     "test": "npm run test --workspaces --if-present",
-    "db:check": "node backend/check-db.js"
+    "db:check": "node backend/check-db.js",
+    "vendor": "node tools/vendor-libs.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.15.15",
@@ -21,7 +22,10 @@
     "pg": "^8.23.0"
   },
   "devDependencies": {
-    "jsdom": "^29.1.1"
+    "jimp": "^1.6.1",
+    "jsdom": "^29.1.1",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8"
   },
   "engines": {
     "node": ">=20.6"

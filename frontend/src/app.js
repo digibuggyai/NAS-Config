@@ -590,13 +590,58 @@ function renderQuote(d = derive()){
     model, units: build.units, drivesPerUnit: build.drivesPerUnit, totalDrives: price.totalDrives,
     driveCap: build.driveCap, driveBrand: build.driveLine,
     usableDelivered: build.totalUsable, exceeded: build.units > 1,
-    rows: rows.map(([label, note, max, min]) => [note ? `${label} (${note})` : label, max, min]),
-    grandQuote: price.grandQuote, grandMin: price.grandMin, expandable: answers.expandable,
+    /* The customer document carries quantity and rate per line, and only the
+       quote price. The minimum is the rep's negotiating floor and never leaves
+       the building — it is deliberately absent from this payload. */
+    lines: quotationLines(build, price),
+    grandQuote: price.grandQuote,
+    expandable: answers.expandable,
     cust: {
       name: answers.custName.trim(), location: answers.custLocation.trim(),
       rep: answers.repName.trim(), validity: answers.validity
     }
   };
+}
+
+/** The priced lines as a customer would read them: what, how many, at what rate. */
+function quotationLines(build, price){
+  const drive = PRICING.hddPricing[build.driveCap]?.[build.driveLine] ?? { quote: 0 };
+  const lines = [
+    {
+      description: `${build.model.id} — ${build.model.brand} ${build.model.bays}-bay NAS`,
+      detail: build.model.network ? `Network: ${build.model.network}` : "",
+      qty: build.units,
+      rate: build.model.quote,
+      amount: price.nasQuote
+    },
+    {
+      description: `${build.driveCap} TB ${build.driveLine} NAS hard drive`,
+      detail: `${build.drivesPerUnit} per unit, configured as ${answers.raid}`,
+      qty: price.totalDrives,
+      rate: drive.quote,
+      amount: price.hddQuote
+    }
+  ];
+
+  if(answers.includeInstall){
+    lines.push({
+      description: "On-site installation & setup",
+      detail: "Racking, RAID configuration, network setup",
+      qty: build.units,
+      rate: PRICING.install.quote,
+      amount: price.installQuote
+    });
+  }
+  if(answers.includeAMC){
+    lines.push({
+      description: "Annual maintenance cost (AMC)",
+      detail: `${Math.round(PRICING.amcRate.quote * 100)}% of hardware value`,
+      qty: null,
+      rate: null,
+      amount: price.amcQuote
+    });
+  }
+  return lines;
 }
 
 function openQuote(){ $("quotePanel").classList.add("open"); $("scrim").hidden = false; }
@@ -610,7 +655,7 @@ function statusMsg(text, cls){
   el.className = "pdf-status" + (cls ? " " + cls : "");
 }
 
-function handleGeneratePdf(){
+async function handleGeneratePdf(){
   const q = ui.lastQuote;
   if(!q || !q.model){ statusMsg("Nothing to quote yet.", "err"); return; }
   if(!window.jspdf){ statusMsg("PDF library didn't load — check your connection.", "err"); return; }
@@ -619,7 +664,8 @@ function handleGeneratePdf(){
   btn.disabled = true;
   statusMsg("Building PDF…");
   try{
-    buildPdf({ ...q, ref: quoteRef() }).save(quoteFilename(q.cust.name));
+    const doc = await buildPdf({ ...q, ref: quoteRef() });
+    doc.save(quoteFilename(q.cust.name));
     statusMsg("Downloaded.", "ok");
   }catch(e){
     console.error(e);

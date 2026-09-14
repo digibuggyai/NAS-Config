@@ -5,7 +5,7 @@
  * Sheet was replaced by this database.
  */
 
-import { db, bool, parseJson } from "./db.js";
+import { db, bool, parseJson, todayIso } from "./db.js";
 
 /* The quoted floor is the ex-GST base plus tax. Kept as a setting rather than a
  * constant so a GST change is an admin edit, not a deploy. */
@@ -30,14 +30,14 @@ const CURRENT_PRICE = `
 
 /** Every product with the price currently in force. `asOf` lets an old quote be
  *  re-priced at the numbers that applied on its date. */
-export async function productsWithPrice({ asOf = new Date().toISOString().slice(0,10), activeOnly = false } = {}){
+export async function productsWithPrice({ asOf = todayIso(), activeOnly = false } = {}){
   const where = activeOnly ? " WHERE p.active = 1" : "";
   const rows = await db().all(`${CURRENT_PRICE}${where} ORDER BY p.category, p.sort_order, p.name`, [asOf]);
   const gst = await gstRate();
   return rows.map(r => shape(r, gst));
 }
 
-export async function productWithPrice(id, asOf = new Date().toISOString().slice(0,10)){
+export async function productWithPrice(id, asOf = todayIso()){
   const row = await db().get(`${CURRENT_PRICE} WHERE p.id = ?`, [asOf, id]);
   return row ? shape(row, await gstRate()) : null;
 }

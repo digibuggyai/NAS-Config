@@ -207,8 +207,10 @@
 </div>
 <div class="scrim" id="scrim" hidden></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js"></script>
+<!-- Served from this origin, not a CDN: a pinned cdnjs URL started 404ing and
+     took the Download PDF button with it. See frontend/vendor/README.md. -->
+<script src="vendor/jspdf.umd.min.js"></script>
+<script src="vendor/jspdf.plugin.autotable.min.js"></script>
 <script type="module" src="src/app.js"></script>
 </body>
 </html>

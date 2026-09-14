@@ -269,4 +269,14 @@ export function parseJson(value, fallback){
 }
 
 export const nowIso = () => new Date().toISOString();
-export const todayIso = () => new Date().toISOString().slice(0, 10);
+/* Prices take effect on a business day, and the business runs on India time.
+ * The UTC date is a day behind for the first 5.5 hours of every IST morning, so
+ * a price entered at 9am on the 15th was being dated the 14th. Override with
+ * BUSINESS_TZ if that ever changes. */
+const BUSINESS_TZ = process.env.BUSINESS_TZ || "Asia/Kolkata";
+
+export const todayIso = (at = new Date()) =>
+  // en-CA formats as YYYY-MM-DD, the shape the effective_from column holds
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TZ, year: "numeric", month: "2-digit", day: "2-digit"
+  }).format(at);

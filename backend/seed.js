@@ -16,6 +16,13 @@ import { hashPassword } from "./auth.js";
 
 const EFFECTIVE_FROM = "2026-09-10";
 
+/* How later changes are labelled in the price history. Override per run:
+ *   UPDATE_NOTE="Distributor list 1 Oct" npm run seed */
+const UPDATE_NOTE = process.env.UPDATE_NOTE || "price sheet update";
+
+/* Set at the start of each run: whether the catalogue was empty before it. */
+const seeding = { firstRun: false };
+
 /* ---------------- NAS units ---------------- */
 /* [sku, brand, bays, base (ex-GST), quote (asking, incl. GST), expandable]
    Expandability is column F of the price sheet: only these four take an
@@ -75,8 +82,9 @@ const RAID_MULTI = ["RAID0","RAID1","RAID5","RAID6","RAID10"];
 const DRIVES = [
   [2,  "Exos",         17000, 21000],
   [2,  "IronWolf",     15300, 19000],
+  [4,  "Exos",         21800, 27010.2],   // added 15 Sep 2026
   [4,  "IronWolf",     17800, 22000],
-  [6,  "WD Ultrastar", 28000, 35000],
+  [6,  "WD Ultrastar", 24000, 35000],     // base 28000 -> 24000, 15 Sep 2026
   [8,  "Exos",         36500, 45000],
   [10, "Exos",         42000, 52000],
   [10, "IronWolf",     40000, 50000],
@@ -84,7 +92,7 @@ const DRIVES = [
   [12, "Exos",         55000, 68000],
   [12, "WD Ultrastar", 53000, 65000],
   [16, "Exos",         66500, 82000],
-  [16, "WD Ultrastar", 66000, 82000]
+  [16, "WD Ultrastar", 67000, 82000]      // base 66000 -> 67000, 15 Sep 2026
 ];
 
 const DRIVE_BRAND = { "Exos":"Seagate", "IronWolf":"Seagate", "WD Ultrastar":"Western Digital" };
@@ -101,6 +109,7 @@ const SERVICES = [
 export async function seed({ adminEmail, adminPassword, quiet = false } = {}){
   const log = (...a) => { if(!quiet) console.log(...a); };
   let added = 0, updated = 0, repriced = 0;
+  seeding.firstRun = Number((await db().get("SELECT COUNT(*) AS n FROM products")).n) === 0;
 
   await setSetting("gst_rate", "0.18");
   await setSetting("company_name", "DigiBuggy (DGB India)");
@@ -194,11 +203,15 @@ async function upsert(p, price){
   );
   let repriced = 0;
   if(!current || Number(current.base_price) !== price.base || Number(current.quote_price) !== price.quote){
+    // Only a catalogue seeded from nothing gets the opening date. A product added
+    // or repriced later is dated the day it happened, so history reads true.
+    const opening = !current && seeding.firstRun;
     await db().run(
       `INSERT INTO prices (product_id, base_price, quote_price, effective_from, note, created_by, created_at)
        VALUES (?,?,?,?,?,NULL,?)`,
-      [id, price.base, price.quote, current ? todayIso() : EFFECTIVE_FROM,
-       current ? "Updated by seed" : "Opening price list", nowIso()]
+      [id, price.base, price.quote, opening ? EFFECTIVE_FROM : todayIso(),
+       opening ? "Opening price list" : (current ? `Repriced: ${UPDATE_NOTE}` : `Added: ${UPDATE_NOTE}`),
+       nowIso()]
     );
     repriced = 1;
   }

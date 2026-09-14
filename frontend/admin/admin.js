@@ -16,6 +16,8 @@ const CATEGORIES = ["NAS","HDD","SSD","RAM","NIC","EXPANSION","SERVICE","ACCESSO
 
 const inr = n => (n == null || isNaN(n)) ? "—" : "₹" + Math.round(n).toLocaleString("en-IN");
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+const localDate = (d = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 /* ---------------- API ---------------- */
 
@@ -327,7 +329,9 @@ function openProduct(product){
     f.elements.category.value = "NAS";
   }
 
-  f.elements.priceEffectiveFrom.value = new Date().toISOString().slice(0,10);
+  // the admin's own calendar day, not UTC's — which is still yesterday for the
+  // first 5.5 hours of an Indian morning
+  f.elements.priceEffectiveFrom.value = localDate();
   syncCategoryFields();
   updateComputedMin();
   showDialog($("productDialog"));

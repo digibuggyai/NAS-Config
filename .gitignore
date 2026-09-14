@@ -12,3 +12,6 @@ backend/.env
 
 # generated credentials, read once then delete
 backend/ADMIN-PASSWORD.txt
+
+# generated sample output
+sample-quotation.pdf
