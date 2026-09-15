@@ -50,7 +50,10 @@ export const FALLBACK = {
     16: { "Exos":{quote:82000, min:78470}, "WD Ultrastar":{quote:82000, min:79060} }
   },
   install: { quote:5900, min:4130 },
-  amcRate: { quote:0.10, min:0.07 }
+  amcRate: { quote:0.10, min:0.07 },
+  // RAM/NIC add-ons: none in the built-in snapshot. A real deployment's admin
+  // supplies these; an empty catalogue just means the Upgrades section says so.
+  upgrades: []
 };
 
 const PRICING_URL = new URL("../data/pricing.json", import.meta.url);
@@ -187,6 +190,20 @@ export function normalise(raw){
     : Object.keys(hddPricing).map(Number)
   ).filter(c => Number.isFinite(c) && hddPricing[c]).sort((a,b) => a-b);
 
+  // Each upgrade only needs to be a real, priced thing with a name to parse a
+  // speed out of — nothing here assumes it fits any particular model.
+  const upgrades = (Array.isArray(d.upgrades) ? d.upgrades : [])
+    .map(u => ({
+      sku: String(u.sku || "").trim(),
+      category: String(u.category || "").trim().toUpperCase(),
+      name: String(u.name || "").trim(),
+      brand: String(u.brand || "").trim(),
+      spec: String(u.spec || "").trim(),
+      quote: Number(u.quote),
+      min: Number(u.min ?? u.quote)
+    }))
+    .filter(u => u.sku && u.name && Number.isFinite(u.quote));
+
   return {
     models: models.length ? models : FALLBACK.models,
     hddPricing: capacities.length ? hddPricing : FALLBACK.hddPricing,
@@ -195,6 +212,7 @@ export function normalise(raw){
     // `rmaRate` is what this field was called before it was renamed to AMC;
     // still accepted so an older sheet export keeps working.
     amcRate: numberPair(d.amcRate ?? d.rmaRate, FALLBACK.amcRate),
+    upgrades,
     updatedAt: d.updatedAt || null
   };
 }

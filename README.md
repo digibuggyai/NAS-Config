@@ -114,25 +114,35 @@ in the panel as a warning rather than silently dropped.
 
 ## The page
 
-Five sections on one scrolling page, with the quotation beside them:
+Eleven sections on one scrolling page, with the quotation beside them:
 
-1. **Storage need** — usable TB, typed directly or set with the slider/presets
-   (2–200 TB; a typed figure outside that range is clamped when committed).
-2. **Chassis, RAID & drives** — chassis size, RAID level, drive capacity, drive
-   line, network speed, expandability.
-3. **NAS unit** — the units matching the bay tier and RAID level, cheapest first.
-4. **Add-ons** — installation and AMC (annual maintenance cost).
-5. **Quotation details** — customer, location, rep, validity.
+1. **Storage need** — pick a usable TB target from what can actually be built, or
+   switch to sizing **by budget** and enter a ₹ amount instead.
+2. **NAS brand** — no preference, or pinned to one make.
+3. **Bays** — Auto, or a specific chassis size.
+4. **RAID level** — manual in capacity mode. In budget mode it's chosen
+   automatically (see below) unless overridden here.
+5. **Room to expand** — restricts the suggestion to units that take an expansion
+   unit later.
+6. **Suggested NAS** — the cheapest unit that fits everything above; nothing is
+   auto-selected, so the quotation stays unpriced until one is picked.
+7. **Network speed** — what the suggested unit ships with, plus whatever a network
+   card added in step 9 unlocks.
+8. **Drives** — the suggestion picks these; pin a capacity or line to constrain it.
+9. **RAM & network upgrade** — optional per-unit extras, drawn straight from
+   whatever an admin has priced in the RAM/NIC categories. There's no per-model
+   compatibility check, so confirm fit before quoting.
+10. **Add-ons** — installation and AMC (annual maintenance cost).
+11. **Quotation details** — customer, location, rep, validity.
 
-Nothing is auto-selected in section 3, and the quotation stays unpriced — totals
-blank, PDF disabled — until the rep picks a unit. Everything else updates live as
-answers change, so the sections can be filled in any order. All answers live in one
-state object and each section renders from it.
-
-On a laptop the quotation sits in a sticky sidebar; on a phone or tablet it
-collapses to a pinned running total that opens the full quotation as a bottom sheet.
+Everything updates live as answers change, so the sections can be filled in any
+order. All answers live in one state object and each section renders from it. On a
+laptop the quotation sits in a sticky sidebar; on a phone or tablet it collapses to
+a pinned running total that opens the full quotation as a bottom sheet.
 
 ## How the recommendation works
+
+**Sizing by capacity** (the default):
 
 1. **Usable capacity per RAID level** — RAID 0 `n×size`, RAID 1 `size` (2 drives),
    RAID 5 `(n−1)×size`, RAID 6 `(n−2)×size`, RAID 10 `(n/2)×size`.
@@ -146,24 +156,44 @@ collapses to a pinned running total that opens the full quotation as a bottom sh
    rather than one 8-bay — so the section says which it produced.
 4. **Models** are filtered to that bay tier and RAID level, cheapest first. Ticking
    "room to expand later" floats expandable units to the top.
-5. **Total** = `(NAS × units) + (drive × drives-per-unit × units) + installation + AMC%`,
-   matching the price sheet's own example calculator. AMC is a percentage of the
-   hardware subtotal only — installation is not marked up.
+
+**Sizing by budget** runs the same search the other way: for a fixed amount of
+money, what's the most usable storage it buys, and does redundancy fit inside that.
+RAID levels are tried most-protective first (RAID6, RAID10, RAID5, RAID1, RAID0),
+and the first one with *any* build that fits the budget at all is used — ranked
+internally by usable capacity, then price. RAID0 only comes up when nothing more
+protective is affordable; a pure "maximise raw terabytes" search would pick RAID0
+at every budget, since it always yields more capacity per drive than a redundant
+level, which is a bad default for a tool quoting someone's storage. The rep can
+still override with a specific RAID tile, which fixes that level and re-optimises
+just the model/drives against the same budget.
+
+**The total** = `(NAS × units) + (drive × drives-per-unit × units) + RAM × units +
+network card × units + installation + AMC%`, matching the price sheet's own
+example calculator for the core hardware. AMC is a percentage of the hardware
+subtotal (NAS + drives + RAM + network card) — installation is not marked up.
 
 Every column shows two prices: **Max** (the sheet's list "Quote Price") and
-**Min** (the sheet's "with tax" / best price).
+**Min** (the sheet's "with tax" / best price) — except the customer-facing PDF,
+which only ever shows Max; Min is the rep's negotiating floor.
 
 ## Known gaps
 
 - The original sheet's **PreBuilds** and **Reference** tabs were never read. They
   may define ready-made configurations that should be offered directly rather than
   assembled from the sizing rules above.
-- **No SSD, RAM or NIC products yet.** The database and admin handle those
-  categories; nobody has entered any. Add them at `/admin` and SSDs appear
-  alongside HDDs immediately — RAM and NICs need a decision about where they sit
-  in the sales flow before they can be quoted.
-- **Network speed** is captured as a customer requirement printed on the quote. It
-  is not matched against real per-model NIC specs.
+- **No SSD products yet.** The database and admin handle the category; nobody has
+  entered any. Add one at `/admin` and it appears alongside HDDs immediately.
+- **RAM and network cards have no per-model compatibility check.** A product priced
+  in the RAM or NIC category is offered against every build regardless of whether
+  it physically fits that chassis (RAM slot type, PCIe form factor) — the rep is
+  expected to judge fit, the same way the admin already has to judge whether a
+  network card's stated speed (parsed from its name, e.g. "10GbE PCIe Network
+  Card") is one the customer's chassis has a slot for.
+- **Network speed** is captured as a customer requirement printed on the quote. A
+  unit's own ports are read from admin data; a speed beyond that is only ever
+  quoted once a matching network card is added in step 9 — the ability to reach a
+  speed via an unpriced card is noted but never billed.
 - **Expandability** flags came from product-line knowledge (Synology "+", QNAP
   PX/A tiers), not from a price list. They are editable per product in the admin —
   correct any that are wrong.

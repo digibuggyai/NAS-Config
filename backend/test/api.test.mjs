@@ -95,6 +95,36 @@ test("the price list is public; the catalogue behind it is not", async () => {
   assert.equal((await call("/api/products")).status, 401);
 });
 
+test("/api/pricing (the internal tool's feed) still carries the minimum", async () => {
+  const { json } = await call("/api/pricing");
+  assert.ok(json.models.every(m => "minTax" in m), "every model has a floor price");
+  assert.ok(Object.values(json.hddPricing).every(byLine =>
+    Object.values(byLine).every(p => "min" in p)));
+  assert.ok("min" in json.install);
+  assert.ok("min" in json.amcRate);
+});
+
+test("/api/pricing/public carries the same catalogue with the minimum left out entirely", async () => {
+  const [full, pub] = await Promise.all([call("/api/pricing"), call("/api/pricing/public")]);
+  assert.equal(pub.status, 200);
+
+  // Same products, same asking prices — this is the same tool minus one number,
+  // not a cut-down version of it.
+  assert.deepEqual(pub.json.models.map(m => m.id).sort(), full.json.models.map(m => m.id).sort());
+  assert.deepEqual(pub.json.models.map(m => m.quote), full.json.models.map(m => m.quote));
+  assert.deepEqual(pub.json.capacities, full.json.capacities);
+  assert.equal(pub.json.install.quote, full.json.install.quote);
+
+  // The floor price is absent, not just zeroed or hidden — nothing for a
+  // customer to find by opening dev tools on a page built against this feed.
+  assert.ok(pub.json.models.every(m => !("minTax" in m)));
+  assert.ok(Object.values(pub.json.hddPricing).every(byLine =>
+    Object.values(byLine).every(p => !("min" in p))));
+  assert.ok(!("min" in pub.json.install));
+  assert.ok(!("min" in pub.json.amcRate));
+  assert.ok(pub.json.upgrades.every(u => !("min" in u)));
+});
+
 test("a rep cannot read or change the catalogue", async () => {
   assert.equal((await call("/api/products", { cookie: repCookie })).status, 403);
   assert.equal((await call("/api/users", { cookie: repCookie })).status, 403);
@@ -195,6 +225,40 @@ test("a product can be created, and appears in the price list once priced", asyn
   const added = json.models.find(m => m.id === "DS1621+");
   assert.ok(added, "the new unit is quotable");
   assert.equal(added.bays, 6);
+});
+
+test("RAM and NIC products appear in the public payload as plain upgrades", async () => {
+  const ram = await call("/api/products", {
+    method:"POST", cookie: adminCookie,
+    body:{
+      sku:"RAM-8GB-TEST", category:"RAM", name:"8GB DDR4 SODIMM", brand:"Crucial", unit:"per_unit",
+      price:{ base:4200, quote:4500 }
+    }
+  });
+  assert.equal(ram.status, 201);
+  assert.equal(ram.json.product.price.min, Math.round(4200 * 1.18));
+
+  const nic = await call("/api/products", {
+    method:"POST", cookie: adminCookie,
+    body:{
+      sku:"NIC-10G-TEST", category:"NIC", name:"10GbE PCIe Network Card", brand:"QNAP", unit:"per_unit",
+      price:{ base:13200, quote:14000 }
+    }
+  });
+  assert.equal(nic.status, 201);
+
+  const { json } = await call("/api/pricing");
+  const upgrades = json.upgrades.filter(u => u.sku === "RAM-8GB-TEST" || u.sku === "NIC-10G-TEST");
+  assert.equal(upgrades.length, 2, "both are exposed to the public feed the configurator reads");
+
+  const ramLine = json.upgrades.find(u => u.sku === "RAM-8GB-TEST");
+  assert.equal(ramLine.category, "RAM");
+  assert.equal(ramLine.quote, 4500);
+  assert.equal(ramLine.min, Math.round(4200 * 1.18));
+
+  // A NAS unit or a drive with no upgrades entered at all must not appear here —
+  // the category is what puts a product in this list, nothing else.
+  assert.ok(!json.upgrades.some(u => u.category !== "RAM" && u.category !== "NIC"));
 });
 
 test("a NAS without a bay count is refused, since it can't be sized", async () => {

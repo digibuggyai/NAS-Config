@@ -75,10 +75,20 @@ function shape(r, gst){
   };
 }
 
-/** The payload served at /api/pricing and consumed by src/pricing.js. */
-export async function buildPricingPayload({ asOf } = {}){
+/**
+ * The payload served at /api/pricing (and, with the minimum stripped,
+ * /api/pricing/public) and consumed by src/pricing.js.
+ *
+ * `includeMin` decides whether the negotiating floor leaves this function at
+ * all — a customer-facing surface needs the number to never exist in the
+ * response, not just be hidden by the page that renders it. Everything else
+ * about the shape is identical between the two, by design: the customer view
+ * is meant to be the same tool minus one number, not a different tool.
+ */
+export async function buildPricingPayload({ asOf, includeMin = true } = {}){
   const products = (await productsWithPrice({ asOf, activeOnly: true })).filter(p => p.price);
   const warnings = [];
+  const price = (quote, min) => includeMin ? { quote, min } : { quote };
 
   const models = products
     .filter(p => p.category === "NAS")
@@ -92,7 +102,7 @@ export async function buildPricingPayload({ asOf } = {}){
       brand: p.brand,
       bays: p.bays,
       quote: p.price.quote,
-      minTax: p.price.min,
+      ...(includeMin ? { minTax: p.price.min } : {}),
       raid: p.raid.length ? p.raid : (p.bays <= 2 ? ["RAID0","RAID1"] : ["RAID0","RAID1","RAID5","RAID6","RAID10"]),
       expandable: p.expandable,
       network: p.network,
@@ -107,30 +117,45 @@ export async function buildPricingPayload({ asOf } = {}){
       continue;
     }
     const line = p.name || p.brand || p.sku;
-    (hddPricing[p.capacityTb] ||= {})[line] = { quote: p.price.quote, min: p.price.min };
+    (hddPricing[p.capacityTb] ||= {})[line] = price(p.price.quote, p.price.min);
   }
 
   const capacities = Object.keys(hddPricing).map(Number).sort((a,b) => a - b);
 
+  /* RAM and NIC are optional per-unit hardware add-ons: no per-model compatibility
+     data exists (which RAM fits which slot, which card fits which PCIe form
+     factor), so every priced product in these categories is offered as a plain
+     choice and the rep/admin judges fit. The configurator parses the NIC's speed
+     straight out of its name/spec (the same "10GbE" pattern used for a NAS's own
+     ports), so naming a card "10GbE PCIe Network Card" is what makes it show up
+     as unlocking that speed — no extra field to fill in. */
+  const upgrades = products
+    .filter(p => p.category === "RAM" || p.category === "NIC")
+    .map(p => ({
+      sku: p.sku, category: p.category, name: p.name, brand: p.brand, spec: p.spec,
+      ...price(p.price.quote, p.price.min)
+    }));
+
   // Services are matched by SKU so the admin can rename them freely.
-  const install = findService(products, "INSTALL") ?? { quote: 0, min: 0 };
+  const installService = findService(products, "INSTALL");
+  const install = installService ? price(installService.quote, installService.min) : price(0, 0);
   const amc = findService(products, "AMC");
   const amcRate = amc
     // A percentage may be entered either as 10 or as 0.10.
-    ? { quote: asFraction(amc.quote), min: asFraction(amc.min) }
-    : { quote: 0.10, min: 0.07 };
+    ? price(asFraction(amc.quote), asFraction(amc.min))
+    : price(0.10, 0.07);
   const gst = await gstRate();
 
   if(!models.length) warnings.push("No priced NAS units — nothing can be quoted.");
   if(!capacities.length) warnings.push("No priced drives — nothing can be quoted.");
-  if(!findService(products, "INSTALL")) warnings.push("No installation price set; installation will quote as zero.");
+  if(!installService) warnings.push("No installation price set; installation will quote as zero.");
 
   return {
     updatedAt: await lastPriceChange(),
     source: "DigiBuggy pricing database",
     gstRate: gst,
     models, capacities, hddPricing,
-    install, amcRate,
+    install, amcRate, upgrades,
     warnings
   };
 }

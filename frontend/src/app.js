@@ -2,8 +2,8 @@ import { loadPricing } from "./pricing.js";
 import { AUTO_REFRESH_MS } from "./config.js";
 import {
   RAID_INFO, inr, computeDrives, validBrandsForCapacity,
-  suggestBuilds, bestBuildPerModel, networkFor, bestNetworkAmong,
-  buildableSizes, nearestBuildable, MAX_UNITS
+  suggestBuilds, bestBuildPerModel, networkFor, bestNetworkAmong, topSpeed, labelForSpeed,
+  buildableSizes, nearestBuildable, suggestBuildsForBudget, suggestBudgetPlan, MAX_UNITS
 } from "./logic.js";
 import { buildPdf, quoteRef, quoteFilename } from "./pdf.js";
 
@@ -15,19 +15,24 @@ let PRICING = null;                    // set in init()
  * one exception — they write into state on input but are never redrawn, so the
  * caret stays put while someone is typing. */
 const answers = {
+  storageMode: "capacity",             // "capacity" = pick a TB target · "budget" = pick a ₹ amount
   targetTB: 20,
+  budget: 200000,
   brand: "any",
   bays: null,                          // null = let the tool choose the chassis
   raid: "RAID5",
+  raidAuto: true,                      // only consulted in budget mode — see renderRaid()
   expandable: false,
 
-  // Chosen by the suggestion, overridable in section 7.
+  // Chosen by the suggestion, overridable in section 6.
   modelId: null,
   driveCap: null,
   driveLine: null,
   autoPick: true,                      // false once the rep picks a unit themselves
 
   speed: null,                         // what to print on the quote
+  ramSku: null,                        // optional per-unit RAM upgrade
+  nicSku: null,                        // optional per-unit network card
   includeInstall: true,
   includeAMC: false,
   custName: "", custLocation: "", repName: "", validity: "15 days"
@@ -104,6 +109,10 @@ function startAutoRefresh(){
  *  drive size, drive count and chassis are chosen together, because they aren't
  *  independent — bigger drives need fewer bays, which allows a cheaper unit. */
 function derive(){
+  return answers.storageMode === "budget" ? deriveByBudget() : deriveByCapacity();
+}
+
+function deriveByCapacity(){
   // Every usable capacity these drives and chassis can actually produce. The
   // rep picks from this rather than typing a figure nothing can build.
   const sizes = buildableSizes({
@@ -120,7 +129,7 @@ function derive(){
   if(!sizes.length){
     return {
       error: "Nothing on the price list can be built with these choices — widen the brand, bays or RAID level.",
-      sizes, builds: [], options: [], build: null, model: null, price: zeroPrice()
+      mode: "capacity", sizes, builds: [], options: [], build: null, model: null, price: zeroPrice()
     };
   }
 
@@ -145,7 +154,61 @@ function derive(){
     capacities: PRICING.capacities
   });
 
-  // Section 7 constrains the suggestion rather than fighting it.
+  return finishDerive({ mode: "capacity", sizes, error: null, builds });
+}
+
+/** The budget flow is the mirror image of the capacity one: instead of finding
+ *  the cheapest build that reaches a target, it finds the build that gets the
+ *  most usable storage out of a fixed amount of money — RAID included, unless
+ *  the rep has pinned one. */
+function deriveByBudget(){
+  ui.storageMoved = null;
+  const budget = answers.budget;
+
+  if(!Number.isFinite(budget) || budget <= 0){
+    return {
+      error: "Enter a budget to size against.",
+      mode: "budget", sizes: [], builds: [], options: [], build: null, model: null, price: zeroPrice()
+    };
+  }
+
+  const common = {
+    models: PRICING.models, hddPricing: PRICING.hddPricing, capacities: PRICING.capacities,
+    brand: answers.brand, bays: answers.bays, expandableOnly: answers.expandable, maxUnits: MAX_UNITS
+  };
+
+  let builds;
+  if(answers.raidAuto){
+    const plan = suggestBudgetPlan({ budget, ...common });
+    if(!plan){
+      return {
+        error: `Nothing on the price list fits ${inr(budget)} with these choices — widen the brand or bays, or raise the budget.`,
+        mode: "budget", sizes: [], builds: [], options: [], build: null, model: null, price: zeroPrice()
+      };
+    }
+    answers.raid = plan.raid;          // keep the RAID section showing what was picked
+    builds = plan.builds;
+  } else {
+    builds = suggestBuildsForBudget({ budget, raid: answers.raid, ...common });
+    if(!builds.length){
+      return {
+        error: `No ${answers.raid} build fits ${inr(budget)} with these choices — try Auto, or a different RAID level.`,
+        mode: "budget", sizes: [], builds: [], options: [], build: null, model: null, price: zeroPrice()
+      };
+    }
+  }
+
+  const d = finishDerive({ mode: "budget", sizes: [], error: null, builds });
+  // The rest of the page (network speed, PDF) talks in terms of a target — a
+  // budget build's delivered capacity IS that target once one has been chosen.
+  if(d.build) answers.targetTB = d.build.totalUsable;
+  return d;
+}
+
+/** The part both sizing modes share once they have a ranked list of builds:
+ *  narrow by any drive choice the rep pinned, then settle on a unit. */
+function finishDerive({ mode, sizes, error, builds }){
+  // Section 8 constrains the suggestion rather than fighting it.
   const narrowed = builds.filter(b =>
     (answers.driveCap == null || b.driveCap === answers.driveCap) &&
     (answers.driveLine == null || b.driveLine === answers.driveLine));
@@ -165,14 +228,24 @@ function derive(){
   }
   if(build) answers.modelId = build.model.id;
 
-  return { error: null, sizes, builds, options, build, model: build?.model ?? null, price: priceFor(build) };
+  return { error, mode, sizes, builds, options, build, model: build?.model ?? null, price: priceFor(build) };
 }
 
 function zeroPrice(){
   return { totalDrives:0, nasQuote:0, nasMin:0, hddQuote:0, hddMin:0,
+           ramQuote:0, ramMin:0, nicQuote:0, nicMin:0,
            installQuote:0, installMin:0, amcQuote:0, amcMin:0,
            hwQuote:0, hwMin:0, grandQuote:0, grandMin:0 };
 }
+
+/** The RAM/NIC product the rep picked, or null once it stops existing in the
+ *  price list (an admin can deactivate one mid-session). */
+function selectedUpgrade(category, sku){
+  if(!sku) return null;
+  return (PRICING.upgrades || []).find(u => u.category === category && u.sku === sku) ?? null;
+}
+const selectedRam = () => selectedUpgrade("RAM", answers.ramSku);
+const selectedNic = () => selectedUpgrade("NIC", answers.nicSku);
 
 function priceFor(build){
   if(!build) return zeroPrice();
@@ -184,16 +257,24 @@ function priceFor(build){
   const hddQuote = drive.quote * totalDrives;
   const hddMin   = drive.min * totalDrives;
 
+  // One per chassis: two units means two RAM sticks and two network cards.
+  const ram = selectedRam();
+  const nic = selectedNic();
+  const ramQuote = ram ? ram.quote * build.units : 0;
+  const ramMin   = ram ? ram.min   * build.units : 0;
+  const nicQuote = nic ? nic.quote * build.units : 0;
+  const nicMin   = nic ? nic.min   * build.units : 0;
+
   const installQuote = answers.includeInstall ? PRICING.install.quote * build.units : 0;
   const installMin   = answers.includeInstall ? PRICING.install.min   * build.units : 0;
 
-  const hwQuote = nasQuote + hddQuote;
-  const hwMin   = nasMin + hddMin;
+  const hwQuote = nasQuote + hddQuote + ramQuote + nicQuote;
+  const hwMin   = nasMin + hddMin + ramMin + nicMin;
   const amcQuote = answers.includeAMC ? hwQuote * PRICING.amcRate.quote : 0;
   const amcMin   = answers.includeAMC ? hwMin   * PRICING.amcRate.min   : 0;
 
   return {
-    totalDrives, nasQuote, nasMin, hddQuote, hddMin,
+    totalDrives, nasQuote, nasMin, hddQuote, hddMin, ramQuote, ramMin, nicQuote, nicMin,
     installQuote, installMin, amcQuote, amcMin, hwQuote, hwMin,
     grandQuote: hwQuote + installQuote + amcQuote,
     grandMin:   hwMin   + installMin   + amcMin
@@ -210,18 +291,32 @@ function tile(name, value, title, sub, selected, extraClass = ""){
   </label>`;
 }
 
+const BUDGET_PRESETS = [100000, 150000, 200000, 300000, 500000];
+
 /* --- 1. storage --- */
 function renderStorage(d){
+  const modeToggle = `
+    <div class="field">
+      <div class="tiles cols-2">
+        ${tile("storageMode", "capacity", "By capacity", "Pick a TB target", answers.storageMode === "capacity")}
+        ${tile("storageMode", "budget", "By budget", "Pick an amount to spend", answers.storageMode === "budget")}
+      </div>
+    </div>`;
+
+  $("secStorage").innerHTML = modeToggle +
+    (answers.storageMode === "budget" ? renderBudgetBody(d) : renderCapacityBody(d));
+}
+
+function renderCapacityBody(d){
   if(d.error){
-    $("secStorage").innerHTML = `<p class="field-error">⚠ ${escapeHtml(d.error)}</p>`;
-    return;
+    return `<p class="field-error">⚠ ${escapeHtml(d.error)}</p>`;
   }
 
   const presets = [10, 20, 50, 100].map(p => nearestBuildable(p, d.sizes))
     .filter((v, i, a) => v != null && a.indexOf(v) === i);
 
   const build = d.build;
-  $("secStorage").innerHTML = `
+  return `
     <div class="field">
       <div class="storage-row">
         <div class="storage-entry">
@@ -249,6 +344,32 @@ function renderStorage(d){
         ? `<p class="field-warn">⚠ ${ui.storageMoved.from} TB can't be built with these choices — moved to
            ${ui.storageMoved.to} TB, the closest that can.</p>`
         : ""}
+    </div>`;
+}
+
+function renderBudgetBody(d){
+  const build = d.build;
+  return `
+    <div class="field">
+      <div class="storage-row">
+        <div class="storage-entry">
+          <span class="storage-unit">₹</span>
+          <input type="number" id="budgetInput" class="storage-input budget mono" min="1000" step="1000"
+                 value="${answers.budget ?? ""}" inputmode="numeric" aria-label="Budget in rupees">
+        </div>
+        <div class="storage-note">
+          <p class="hint">The tool finds the NAS, drives and RAID level that deliver the most usable
+            storage for this amount — RAID is picked automatically unless you choose one in step 4.</p>
+          ${build ? `<p class="hint">${inr(answers.budget)} buys <b>${build.totalUsable} TB</b> usable at
+            ${answers.raid}${build.units > 1 ? ` × ${build.units} units` : ""}.</p>` : ""}
+        </div>
+      </div>
+      <div class="presets">
+        ${BUDGET_PRESETS.map(p =>
+          `<button type="button" class="chip${answers.budget === p ? " on" : ""}" data-budget-preset="${p}">${inr(p)}</button>`
+        ).join("")}
+      </div>
+      ${d.error ? `<p class="field-error">⚠ ${escapeHtml(d.error)}</p>` : ""}
     </div>`;
 }
 
@@ -288,7 +409,15 @@ function renderBays(d){
 
 /* --- 4. RAID --- */
 function renderRaid(){
-  $("secRaid").innerHTML = `
+  const auto = answers.storageMode === "budget" && answers.raidAuto;
+  const note = auto
+    ? `<p class="select-prompt">Chosen automatically for the most usable capacity within ${inr(answers.budget)} —
+        pick a level yourself if the customer needs specific redundancy.</p>`
+    : answers.storageMode === "budget"
+      ? `<p class="hint">Chosen by you. <button type="button" class="link-btn" id="resetRaid">Let the tool choose again</button></p>`
+      : "";
+
+  $("secRaid").innerHTML = note + `
     <div class="tiles">
       ${RAID_TILES.map(([v,t,s]) => tile("raid", v, t, s, answers.raid === v)).join("")}
     </div>
@@ -367,22 +496,36 @@ function renderSpeed(d){
   const net = networkFor(model);
   const bestAvailable = bestNetworkAmong(d.options);
 
+  // A network card added in step 9 raises what this build can actually do,
+  // whether or not the chassis has a fast port built in.
+  const nic = selectedNic();
+  const nicTopGb = nic ? topSpeed(`${nic.name} ${nic.spec}`) : 0;
+  const effectiveTopGb = Math.max(net?.topGb ?? 0, nicTopGb);
+
   // Default to the fastest link the chosen unit actually has.
-  if(answers.speed == null && net?.quotable) answers.speed = net.quotable;
+  if(answers.speed == null){
+    answers.speed = labelForSpeed(effectiveTopGb) ?? net?.quotable ?? null;
+  }
 
   let head;
   if(!model){
     head = `<p class="hint">Pick a unit above and its network ports show here.</p>`;
-  } else if(!net){
+  } else if(!net && !nic){
     head = `<p class="field-warn">⚠ No network ports recorded for ${escapeHtml(model.id)}. An admin can add them in
-            <a href="/admin/" target="_blank" rel="noopener">the pricing admin</a>.</p>`;
+            <a href="/admin/" target="_blank" rel="noopener">the pricing admin</a>, or add a network card in step 9.</p>`;
   } else {
-    const faster = bestAvailable && bestAvailable.topGb > net.topGb ? bestAvailable : null;
-    head = `<p class="select-prompt">${escapeHtml(model.id)} ships with ${escapeHtml(net.builtIn)} —
-              the fastest link this build has out of the box.</p>` +
-      (net.upgrade
-        ? `<p class="hint">Can reach ${escapeHtml(net.upgrade)}. The card isn't in this price list, so it isn't quoted.</p>`
-        : "") +
+    const faster = bestAvailable && bestAvailable.topGb > (net?.topGb ?? 0) ? bestAvailable : null;
+    head = (net
+      ? `<p class="select-prompt">${escapeHtml(model.id)} ships with ${escapeHtml(net.builtIn)} —
+           the fastest link this build has out of the box.</p>`
+      : `<p class="field-warn">⚠ No built-in network ports recorded for ${escapeHtml(model.id)}.</p>`) +
+      (nic
+        ? `<p class="hint">Network card added: <b>${escapeHtml(nic.name)}</b> (${inr(nic.min)} – ${inr(nic.quote)} each) —
+             reaches ${escapeHtml(labelForSpeed(nicTopGb) ?? nic.spec)}.</p>`
+        : net?.upgrade
+          ? `<p class="hint">Can reach ${escapeHtml(net.upgrade)}. Add a matching card in step 9 to quote it —
+             the ability alone isn't priced.</p>`
+          : "") +
       (faster
         ? `<p class="hint">Faster on the shortlist: <b>${escapeHtml(faster.model.id)}</b> has ${escapeHtml(faster.builtIn)}
            built in, if the customer needs the throughput.</p>`
@@ -391,7 +534,9 @@ function renderSpeed(d){
 
   const choices = ["1GbE","2.5GbE","10GbE"].map(v => ({
     v,
-    sub: net && net.topGb >= parseFloat(v) ? "Supported by this unit" : "Needs a faster unit or a card"
+    sub: effectiveTopGb >= parseFloat(v)
+      ? (nicTopGb >= parseFloat(v) && (net?.topGb ?? 0) < parseFloat(v) ? "Supported with the network card added" : "Supported by this unit")
+      : "Needs a faster unit or a card"
   }));
 
   $("secSpeed").innerHTML = head + `
@@ -436,7 +581,36 @@ function renderDrives(d){
     </div>`;
 }
 
-/* --- 9. add-ons --- */
+/* --- 9. RAM & network upgrade --- */
+function renderUpgrades(){
+  const upgrades = PRICING.upgrades || [];
+  const ramOptions = upgrades.filter(u => u.category === "RAM");
+  const nicOptions = upgrades.filter(u => u.category === "NIC");
+
+  const optionBlock = (label, name, options, current, describe) => options.length
+    ? `<div class="field">
+        <span class="field-label">${label}</span>
+        <div class="tiles">
+          ${tile(name, "", "None", "Not needed", current == null)}
+          ${options.map(u => tile(name, u.sku, escapeHtml(u.name), describe(u), current === u.sku)).join("")}
+        </div>
+      </div>`
+    : `<div class="field">
+        <span class="field-label">${label}</span>
+        <p class="hint">Nothing priced yet — add a product in the ${name === "ramSku" ? "RAM" : "NIC"} category in
+          <a href="/admin/" target="_blank" rel="noopener">the pricing admin</a> and it appears here.</p>
+      </div>`;
+
+  $("secUpgrades").innerHTML =
+    optionBlock("RAM upgrade", "ramSku", ramOptions, answers.ramSku,
+      u => `${inr(u.min)} – ${inr(u.quote)} each`) +
+    optionBlock("Network card", "nicSku", nicOptions, answers.nicSku, u => {
+      const speed = labelForSpeed(topSpeed(`${u.name} ${u.spec}`));
+      return `${speed ? speed + " · " : ""}${inr(u.min)} – ${inr(u.quote)} each`;
+    });
+}
+
+/* --- 10. add-ons --- */
 function renderAddons(){
   const amc = `${Math.round(PRICING.amcRate.min*100)}% – ${Math.round(PRICING.amcRate.quote*100)}%`;
   $("secAddons").innerHTML = `
@@ -510,6 +684,7 @@ function renderAll(){
   renderModel(d);
   renderSpeed(d);
   renderDrives(d);
+  renderUpgrades();
   renderAddons();
   renderQuote(d);
 
@@ -529,10 +704,15 @@ function renderQuote(d = derive()){
   $("quoteRef").textContent = (priced ? "Draft · " : "Not yet priced · ") +
     new Date().toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"});
 
+  const ram = build ? selectedRam() : null;
+  const nic = build ? selectedNic() : null;
+
   const rows = build ? [
     [`NAS unit${build.units > 1 ? " × " + build.units : ""}`, build.model.id, price.nasQuote, price.nasMin],
     [`Hard drives × ${price.totalDrives}`, `${build.driveCap}TB ${build.driveLine}`, price.hddQuote, price.hddMin]
   ] : [];
+  if(ram) rows.push([`RAM upgrade × ${build.units}`, ram.name, price.ramQuote, price.ramMin]);
+  if(nic) rows.push([`Network card × ${build.units}`, nic.name, price.nicQuote, price.nicMin]);
   if(build && answers.includeInstall) rows.push(["Installation & setup", "", price.installQuote, price.installMin]);
   if(build && answers.includeAMC)     rows.push(["AMC (annual maintenance)", "", price.amcQuote, price.amcMin]);
 
@@ -552,12 +732,17 @@ function renderQuote(d = derive()){
     ["Usable delivered", build ? `${build.totalUsable} TB` : "—", true],
     ["Network", answers.speed || "—", true],
     ["RAID", answers.raid, true],
-    ["Target usable", `${answers.targetTB} TB`, true],
+    ["Target usable", `${answers.targetTB} TB`, true]
+  ];
+  if(answers.storageMode === "budget") summaryRows.push(["Budget", inr(answers.budget), true]);
+  if(ram) summaryRows.push(["RAM upgrade", ram.name, false]);
+  if(nic) summaryRows.push(["Network card", nic.name, false]);
+  summaryRows.push(
     ["Brand asked for", answers.brand === "any" ? "No preference" : answers.brand, false],
     ["Bays asked for", answers.bays == null ? "Auto" : `${answers.bays}-bay`, false],
     ["Expandable", answers.expandable ? "Required" : "Not required", false],
     ["Valid for", answers.validity, false]
-  ];
+  );
 
   $("quoteSummary").innerHTML = headline + summaryRows.map(([k,v,mono]) =>
     `<div class="qs-row"><span class="k">${k}</span><span class="v${mono ? " mono" : ""}">${escapeHtml(v)}</span></div>`
@@ -623,6 +808,28 @@ function quotationLines(build, price){
     }
   ];
 
+  const ram = selectedRam();
+  if(ram){
+    lines.push({
+      description: ram.name,
+      detail: [ram.brand, ram.spec].filter(Boolean).join(" · ") || "RAM upgrade",
+      qty: build.units,
+      rate: ram.quote,
+      amount: price.ramQuote
+    });
+  }
+
+  const nic = selectedNic();
+  if(nic){
+    lines.push({
+      description: nic.name,
+      detail: [nic.brand, nic.spec].filter(Boolean).join(" · ") || "Network card",
+      qty: build.units,
+      rate: nic.quote,
+      amount: price.nicQuote
+    });
+  }
+
   if(answers.includeInstall){
     lines.push({
       description: "On-site installation & setup",
@@ -686,11 +893,26 @@ function onChange(e){
   else if(name === "bays")         answers.bays = el.value === "" ? null : Number(el.value);
   else if(name === "driveCap")     answers.driveCap = el.value === "" ? null : Number(el.value);
   else if(name === "driveLine")    answers.driveLine = el.value === "" ? null : el.value;
+  else if(name === "ramSku")       answers.ramSku = el.value === "" ? null : el.value;
+  else if(name === "nicSku")       answers.nicSku = el.value === "" ? null : el.value;
   else if(name === "modelId"){     answers.modelId = el.value; answers.autoPick = false; }
+  else if(name === "raid"){
+    answers.raid = el.value;
+    // Picking a level by hand in budget mode overrides the automatic choice
+    // until the rep asks for it back — see the "Let the tool choose again" link.
+    if(answers.storageMode === "budget") answers.raidAuto = false;
+  }
+  else if(name === "storageMode"){
+    answers.storageMode = el.value;
+    if(el.value === "budget"){
+      answers.raidAuto = true;
+      if(!Number.isFinite(answers.budget) || answers.budget <= 0) answers.budget = 200000;
+    }
+  }
   else                             answers[name] = el.value;
 
-  // The recorded speed belongs to a unit, so a new unit re-reads it.
-  if(["modelId","brand","raid","bays"].includes(name)) answers.speed = null;
+  // The recorded speed belongs to a unit, so a new unit — or a new card — re-reads it.
+  if(["modelId","brand","raid","bays","nicSku"].includes(name)) answers.speed = null;
 
   if(el.closest("#secDetails")){
     syncTileSelection(name);
@@ -718,6 +940,10 @@ function bindEvents(){
     if(e.target.type === "text"){
       answers[e.target.name] = e.target.value;
       renderQuote();
+    } else if(e.target.id === "budgetInput"){
+      const v = Number(e.target.value);
+      answers.budget = e.target.value !== "" && Number.isFinite(v) ? v : null;
+      renderAll();
     }
   });
 
@@ -737,8 +963,19 @@ function bindEvents(){
       renderAll();
       return;
     }
+    const budgetChip = e.target.closest("[data-budget-preset]");
+    if(budgetChip){
+      answers.budget = Number(budgetChip.dataset.budgetPreset);
+      renderAll();
+      return;
+    }
     if(e.target.id === "resetPick"){
       answers.autoPick = true;
+      renderAll();
+      return;
+    }
+    if(e.target.id === "resetRaid"){
+      answers.raidAuto = true;
       renderAll();
     }
   });

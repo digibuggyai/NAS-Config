@@ -273,6 +273,15 @@ button{ font:inherit; }
   font-variant-numeric:tabular-nums;
 }
 
+/* Budget figures run to 6-8 digits, not the 2-3 a TB figure needs — the shared
+   3.6ch box was clipping them against the ₹ sign. Wider and a size down, so the
+   whole row stays close to the TB field's height rather than towering over it;
+   left-aligned so the digits sit against the ₹ rather than drifting to the far
+   edge of the wider box. */
+.storage-input.budget{
+  width:7.2ch; font-size:26px; text-align:left; letter-spacing:-.01em;
+}
+
 /* the size picker: only capacities that can actually be built */
 .storage-select{
   width:auto; border:none; background:none; box-shadow:none; padding:2px 34px 2px 0;

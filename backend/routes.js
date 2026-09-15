@@ -53,11 +53,21 @@ router.get("/auth/me", (req, res) => res.json({ user: req.user || null }));
 
 /* ============================ pricing feed ============================ */
 
-/* Public on purpose: it is the price list the configurator quotes from, and the
-   configurator itself is an internal page. It exposes prices, nothing else. */
+/* Public on purpose: it is the price list the internal configurator quotes
+   from. It carries the negotiating floor (minTax / min), which is why the
+   customer-facing page uses /pricing/public below instead — never this one. */
 router.get("/pricing", wrap(async (req, res) => {
   res.set("Cache-Control", "no-store");
-  res.json(await buildPricingPayload({ asOf: req.query.asOf }));
+  res.json(await buildPricingPayload({ asOf: req.query.asOf, includeMin: true }));
+}));
+
+/* The same catalogue, with every minimum/floor price left out at the source —
+   not merely hidden by a page that also receives it. A customer opening the
+   Network tab on the customer-facing page gets exactly what's here, nothing
+   more. */
+router.get("/pricing/public", wrap(async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.json(await buildPricingPayload({ asOf: req.query.asOf, includeMin: false }));
 }));
 
 /* ============================ products ============================ */

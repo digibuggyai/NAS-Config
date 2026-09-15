@@ -10,6 +10,11 @@
  */
 export const PRICING_ENDPOINT = "/api/pricing";
 
+/* The customer-facing page (customer.html) uses this instead. The server never
+ * puts a minimum/floor price in this response at all — see backend/routes.js —
+ * so there is nothing for a curious customer to find by opening dev tools. */
+export const PRICING_ENDPOINT_PUBLIC = "/api/pricing/public";
+
 /* Give up on the sheet after this long and quote from cache instead, rather than
  * leaving a rep staring at a blank panel in front of a customer. */
 export const FETCH_TIMEOUT_MS = 8000;

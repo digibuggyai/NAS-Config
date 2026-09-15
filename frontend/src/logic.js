@@ -332,3 +332,106 @@ export function nearestBuildable(targetTB, sizes){
   if(below == null) return atOrAbove;
   return (atOrAbove - targetTB) <= (targetTB - below) ? atOrAbove : below;
 }
+
+/* ============================================================
+   Sizing by budget
+   ============================================================ */
+
+/** Most to least redundant, used only to break a tie in usable capacity — see
+ *  suggestBudgetPlan. Not a ranking of which RAID level is "better" in general. */
+export const RAID_REDUNDANCY_ORDER = ["RAID6", "RAID10", "RAID5", "RAID1", "RAID0"];
+
+/**
+ * Every build at a fixed RAID level that fits inside a budget, most usable
+ * capacity first.
+ *
+ * Unlike suggestBuilds() (smallest/cheapest build that reaches a target), this
+ * runs the search the other way: for a fixed amount of money, what is the most
+ * storage it buys. A build is model + drive size + drive line + drive count +
+ * unit count, priced as a whole, exactly as suggestBuilds() treats it — the same
+ * reasoning applies for why they can't be chosen independently.
+ */
+export function suggestBuildsForBudget({
+  budget, raid, models, hddPricing, capacities,
+  brand = "any", bays = null, expandableOnly = false, maxUnits = MAX_UNITS
+}){
+  const info = RAID_INFO[raid];
+  if(!info || !(budget > 0)) return [];
+
+  const builds = [];
+
+  for(const model of models){
+    if(!model.raid.includes(raid)) continue;
+    if(brand !== "any" && model.brand.toLowerCase() !== brand.toLowerCase()) continue;
+    if(bays != null && model.bays !== Number(bays)) continue;
+    if(expandableOnly && !model.expandable) continue;
+
+    for(const cap of capacities){
+      const lines = hddPricing[cap] || {};
+      for(const line of Object.keys(lines)){
+        const drive = lines[line];
+        const counts = raid === "RAID1" ? [2] : range(info.minDrives, model.bays, info.step);
+
+        for(const n of counts){
+          const perUnitUsable = usableForN(raid, n, cap);
+          if(!(perUnitUsable > 0)) continue;
+          const perUnitQuote = model.quote * 1 + drive.quote * n;
+          const perUnitMin = model.minTax + drive.min * n;
+
+          // Each added unit only ever costs more, so once one exceeds the
+          // budget every larger unit count will too.
+          for(let units = 1; units <= maxUnits; units++){
+            const totalQuote = perUnitQuote * units;
+            if(totalQuote > budget) break;
+            builds.push({
+              model, driveCap: cap, driveLine: line,
+              drivesPerUnit: n, units,
+              bayNeed: n, raid,
+              totalUsable: perUnitUsable * units,
+              spareBays: (model.bays - n) * units,
+              totalQuote, totalMin: perUnitMin * units
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // Most storage for the money first; then cheaper; then fewer boxes.
+  builds.sort((a, b) =>
+    b.totalUsable - a.totalUsable ||
+    a.totalQuote - b.totalQuote ||
+    a.units - b.units
+  );
+  return builds;
+}
+
+/**
+ * The RAID level to default a budget-driven quote to, and the ranked builds at
+ * that level.
+ *
+ * This answers "does the budget need to sacrifice redundancy, or not" — which
+ * is a judgment about risk, not just arithmetic. Maximising raw usable
+ * terabytes across every RAID level doesn't work as "the best solution": RAID 0
+ * always yields more capacity per drive than any redundant level, so a pure
+ * capacity-maximiser would default every quote to zero fault tolerance, however
+ * generous the budget. Instead, redundancy is kept unless the budget genuinely
+ * can't afford it: RAID levels are tried most-protective first, and the first
+ * one with ANY build that fits the budget at all is used, ranked internally by
+ * usable capacity. RAID 0 only comes up when nothing more protective fits —
+ * "redundancy isn't required" because the money can't stretch to it, not
+ * because a spreadsheet found a few extra terabytes elsewhere.
+ */
+export function suggestBudgetPlan({
+  budget, models, hddPricing, capacities,
+  brand = "any", bays = null, expandableOnly = false, maxUnits = MAX_UNITS,
+  raidPool = RAID_REDUNDANCY_ORDER
+}){
+  for(const raid of raidPool){
+    const builds = suggestBuildsForBudget({
+      budget, raid, models, hddPricing, capacities, brand, bays, expandableOnly, maxUnits
+    });
+    if(builds.length) return { raid, builds };   // ranked best-first already
+  }
+  return null;
+}

@@ -38,8 +38,18 @@ test("the sections run in the order the sales conversation does", () => {
   const ids = [...win.document.querySelectorAll(".sections .card > div[id]")].map(d => d.id);
   assert.deepEqual(ids, [
     "secStorage","secBrand","secBays","secRaid","secExpand",
-    "secModel","secSpeed","secDrives","secAddons","secDetails"
+    "secModel","secSpeed","secDrives","secUpgrades","secAddons","secDetails"
   ]);
+});
+
+test("the RAM/network upgrade section says so plainly when nothing is priced", () => {
+  // The offline snapshot carries no RAM/NIC catalogue, so both halves of the
+  // section must say that rather than rendering an empty, unexplained space.
+  assert.match($("secUpgrades").textContent, /RAM upgrade/);
+  assert.match($("secUpgrades").textContent, /Network card/);
+  assert.match($("secUpgrades").textContent, /Nothing priced yet/);
+  assert.equal(all("secUpgrades", 'input[name="ramSku"]').length, 0);
+  assert.equal(all("secUpgrades", 'input[name="nicSku"]').length, 0);
 });
 
 /* ---------------- 1. storage ---------------- */

@@ -189,3 +189,74 @@ test("the top speed of a ports string is the fastest link in it", async () => {
   assert.equal(net.upgrade, "10GbE via PCIe card");
   assert.equal(networkFor({}), null);
 });
+
+/* ---------------- sizing by budget ---------------- */
+
+test("suggestBuildsForBudget finds the most usable capacity a fixed amount buys", async () => {
+  const { suggestBuildsForBudget } = await import("../src/logic.js");
+  const models = [{ id:"TS-433-4G", brand:"QNAP", bays:4, quote:45000, minTax:42480, raid:["RAID0"], expandable:false }];
+  const hddPricing = { 10: { IronWolf: { quote:50000, min:47200 } } };
+
+  const builds = suggestBuildsForBudget({
+    budget: 200000, raid: "RAID0", models, hddPricing, capacities: [10]
+  });
+
+  // Per unit: 1 drive = 95000, 2 = 145000, 3 = 195000, 4 = 245000 (excluded).
+  // A single chassis with 3 drives (195000, 30 TB) beats every combination of
+  // more, cheaper chassis under the same budget — including 2 x 1-drive units
+  // (190000, only 20 TB) — which is exactly why the search checks unit counts
+  // too rather than assuming one chassis is always the answer.
+  assert.ok(builds.every(b => b.totalQuote <= 200000));
+  assert.equal(builds[0].drivesPerUnit, 3, "ranked by usable capacity, most first");
+  assert.equal(builds[0].units, 1);
+  assert.equal(builds[0].totalUsable, 30);
+  assert.equal(builds[0].totalQuote, 195000);
+});
+
+test("nothing above budget is offered, and an impossible budget returns nothing", async () => {
+  const { suggestBuildsForBudget } = await import("../src/logic.js");
+  const models = [{ id:"TS-433-4G", brand:"QNAP", bays:4, quote:45000, minTax:42480, raid:["RAID0"], expandable:false }];
+  const hddPricing = { 10: { IronWolf: { quote:50000, min:47200 } } };
+
+  assert.deepEqual(
+    suggestBuildsForBudget({ budget: 90000, raid:"RAID0", models, hddPricing, capacities:[10] }),
+    []
+  );
+  assert.deepEqual(
+    suggestBuildsForBudget({ budget: 0, raid:"RAID0", models, hddPricing, capacities:[10] }),
+    []
+  );
+});
+
+test("suggestBudgetPlan keeps redundancy whenever the budget can afford it at all", async () => {
+  const { suggestBudgetPlan } = await import("../src/logic.js");
+  const models = [{
+    id:"TS-433-4G", brand:"QNAP", bays:4, quote:45000, minTax:42480,
+    raid:["RAID0","RAID1","RAID5","RAID6","RAID10"], expandable:false
+  }];
+  const hddPricing = { 10: { IronWolf: { quote:50000, min:47200 } } };
+
+  // RAID6/RAID10 both need all 4 bays here (₹2,45,000) — over ₹2,00,000. RAID5
+  // needs only 3 drives (₹1,95,000) and fits, so it wins over RAID0, even though
+  // RAID0 would deliver more raw terabytes for about the same spend.
+  const plan = suggestBudgetPlan({ budget: 200000, models, hddPricing, capacities:[10] });
+  assert.equal(plan.raid, "RAID5");
+  assert.equal(plan.builds[0].totalUsable, 20);
+
+  // Drop the budget below what even RAID1's fixed pair costs (₹1,45,000): only
+  // RAID0 (a single ₹95,000 drive) still fits, so redundancy is genuinely
+  // unaffordable and the tool falls all the way back to it.
+  const tight = suggestBudgetPlan({ budget: 100000, models, hddPricing, capacities:[10] });
+  assert.equal(tight.raid, "RAID0");
+
+  // A huge budget affords RAID6 outright, so the most protective level wins.
+  const generous = suggestBudgetPlan({ budget: 100000000, models, hddPricing, capacities:[10] });
+  assert.equal(generous.raid, "RAID6");
+});
+
+test("suggestBudgetPlan returns null when nothing on the list fits", async () => {
+  const { suggestBudgetPlan } = await import("../src/logic.js");
+  const models = [{ id:"TS-433-4G", brand:"QNAP", bays:4, quote:45000, minTax:42480, raid:["RAID0"], expandable:false }];
+  const hddPricing = { 10: { IronWolf: { quote:50000, min:47200 } } };
+  assert.equal(suggestBudgetPlan({ budget: 1000, models, hddPricing, capacities:[10] }), null);
+});
